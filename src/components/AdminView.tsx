@@ -411,6 +411,7 @@ export function AdminView({ settings, plans }: AdminViewProps) {
         }
         setSettingsMsg('WhatsApp, chave Pix, QR Code e Anti-Retransmissão salvos no servidor!');
       }
+      window.dispatchEvent(new Event('mengao-catalog-refresh'));
     } catch (err) {
       setSettingsMsg(err instanceof Error ? err.message : 'Erro ao salvar configurações.');
     } finally {
@@ -538,6 +539,7 @@ export function AdminView({ settings, plans }: AdminViewProps) {
   async function handleSaveEditedPlan(e: React.FormEvent) {
     e.preventDefault();
     if (!planDraft) return;
+    const token = await getAdminToken();
     setSavingPlan(true);
     setPlanFeedback(null);
     try {
@@ -549,10 +551,25 @@ export function AdminView({ settings, plans }: AdminViewProps) {
           .filter(Boolean)
           .slice(0, 8),
       };
-      await upsertPlan(updated);
+      if (token) {
+        await fetch('/api/admin/plans', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ plan: updated, seedDefaults: plans }),
+        });
+      }
+      if (googleUser && isGoogleAdmin) {
+        await upsertPlan(updated);
+      }
+      window.dispatchEvent(new Event('mengao-catalog-refresh'));
       setEditingPlanId(null);
       setPlanDraft(null);
       setPlanFeedback(`Plano "${updated.name}" atualizado na vitrine!`);
+    } catch (err) {
+      setPlanFeedback(err instanceof Error ? err.message : 'Não foi possível salvar o plano.');
     } finally {
       setSavingPlan(false);
     }
@@ -561,6 +578,7 @@ export function AdminView({ settings, plans }: AdminViewProps) {
   async function handleCreateNewPlan(e: React.FormEvent) {
     e.preventDefault();
     if (!newPlanName.trim() || !newPlanPrice.trim()) return;
+    const token = await getAdminToken();
     setSavingPlan(true);
     setPlanFeedback(null);
     try {
@@ -584,28 +602,59 @@ export function AdminView({ settings, plans }: AdminViewProps) {
         active: true,
         sortOrder: plans.length + 1,
       };
-      await upsertPlan(item);
+      if (token) {
+        await fetch('/api/admin/plans', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ plan: item, seedDefaults: plans }),
+        });
+      }
+      if (googleUser && isGoogleAdmin) {
+        await upsertPlan(item);
+      }
+      window.dispatchEvent(new Event('mengao-catalog-refresh'));
       setNewPlanName('');
       setNewPlanPrice('');
       setNewPlanDays(30);
       setNewPlanSubtitle('');
       setNewPlanFeatures('');
       setPlanFeedback(`Novo plano "${item.name}" adicionado na vitrine!`);
+    } catch (err) {
+      setPlanFeedback(err instanceof Error ? err.message : 'Não foi possível criar o plano.');
     } finally {
       setSavingPlan(false);
     }
   }
 
   async function handleDeletePlan(planId: string, planName: string) {
+    const token = await getAdminToken();
     setSavingPlan(true);
     setPlanFeedback(null);
     try {
-      await deletePlanById(planId);
+      if (token) {
+        await fetch(`/api/admin/plans/${encodeURIComponent(planId)}`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ seedDefaults: plans }),
+        });
+      }
+      if (googleUser && isGoogleAdmin) {
+        await deletePlanById(planId);
+      }
+      window.dispatchEvent(new Event('mengao-catalog-refresh'));
       if (editingPlanId === planId) {
         setEditingPlanId(null);
         setPlanDraft(null);
       }
       setPlanFeedback(`Plano "${planName}" removido.`);
+    } catch (err) {
+      setPlanFeedback(err instanceof Error ? err.message : 'Não foi possível remover o plano.');
     } finally {
       setSavingPlan(false);
     }

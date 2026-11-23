@@ -73,7 +73,6 @@ const PASSOS_LIBERACAO = [
 
 export function LandingView({ settings, plans, onNavigate }: LandingViewProps) {
   const [heroImgError, setHeroImgError] = useState(false);
-  const [playersImgError, setPlayersImgError] = useState(false);
   const [tvImgError, setTvImgError] = useState(false);
   const [copiedPix, setCopiedPix] = useState(false);
   const [tvModalType, setTvModalType] = useState<'apk' | 'webos' | null>(null);
@@ -227,44 +226,25 @@ export function LandingView({ settings, plans, onNavigate }: LandingViewProps) {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 items-stretch gap-8 lg:grid-cols-12">
-            <div className="lg:col-span-6 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
-              {!playersImgError ? (
-                <img
-                  src="/src/assets/images/players_mengao_real_1795419637404.jpg"
-                  alt="Camisas rubro-negras em noite de jogo no Maracanã lotado"
-                  referrerPolicy="no-referrer"
-                  onError={() => setPlayersImgError(true)}
-                  className="h-full min-h-[320px] w-full object-cover"
-                />
-              ) : (
-                <div className="flex h-full min-h-[280px] flex-col items-center justify-center p-6 text-zinc-400">
-                  <MengaoShield className="h-12 w-12" />
-                  <p className="mt-2 text-sm font-semibold text-white">Nação Rubro-Negra</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {CAMISAS_MENGAO.map((camisa) => (
+              <div
+                key={camisa.numero}
+                className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 flex items-center gap-4"
+              >
+                <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-lg border border-[#C8102E]/60 bg-gradient-to-b from-[#C8102E]/25 to-zinc-950">
+                  <span className="font-display text-3xl font-extrabold leading-none text-white tabular-nums">
+                    #{camisa.numero}
+                  </span>
                 </div>
-              )}
-            </div>
-
-            <div className="lg:col-span-6 grid grid-cols-1 gap-3 sm:grid-cols-2 content-between">
-              {CAMISAS_MENGAO.map((camisa) => (
-                <div
-                  key={camisa.numero}
-                  className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 flex items-center gap-4"
-                >
-                  <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-lg border border-[#C8102E]/60 bg-gradient-to-b from-[#C8102E]/25 to-zinc-950">
-                    <span className="font-display text-3xl font-extrabold leading-none text-white tabular-nums">
-                      #{camisa.numero}
-                    </span>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-display text-xl font-bold tracking-tight text-[#C8102E] tabular-nums">
-                      Camisa {camisa.numero}
-                    </p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">{camisa.funcao}</p>
-                  </div>
+                <div className="min-w-0">
+                  <p className="font-display text-xl font-bold tracking-tight text-[#C8102E] tabular-nums">
+                    Camisa {camisa.numero}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">{camisa.funcao}</p>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>

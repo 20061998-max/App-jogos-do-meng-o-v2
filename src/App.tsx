@@ -33,6 +33,7 @@ function MainApp() {
 
   useEffect(() => {
     let serverConfigOverlay: Partial<AppSettingsDoc> = {};
+    let serverPlansOverlay: PlanItem[] | undefined;
 
     const applyMerged = (next: AppSettingsDoc) => {
       setSettings({
@@ -56,34 +57,58 @@ function MainApp() {
     };
 
     const unsubSettings = subscribePublicSettings(applyMerged);
-    const unsubPlans = subscribePlans(activeTab === 'admin', setPlans);
+    const unsubPlans = subscribePlans(activeTab === 'admin', (firestorePlans) => {
+      if (serverPlansOverlay && serverPlansOverlay.length > 0) {
+        setPlans(
+          activeTab === 'admin'
+            ? serverPlansOverlay
+            : serverPlansOverlay.filter((p) => p.active !== false)
+        );
+      } else {
+        setPlans(firestorePlans);
+      }
+    });
 
-    fetch('/api/config/public')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((cfg: Partial<AppSettingsDoc> | null) => {
-        if (!cfg) return;
-        serverConfigOverlay = cfg;
-        setSettings((prev) => ({
-          ...prev,
-          whatsappNumber: cfg.whatsappNumber || prev.whatsappNumber,
-          pixKey: cfg.pixKey || prev.pixKey,
-          pixType: cfg.pixType || prev.pixType,
-          pixReceiverName: cfg.pixReceiverName || prev.pixReceiverName,
-          pixQrCodeDataUrl:
-            typeof cfg.pixQrCodeDataUrl === 'string' && cfg.pixQrCodeDataUrl
-              ? cfg.pixQrCodeDataUrl
-              : prev.pixQrCodeDataUrl,
-          tvOnlyAntiRetransmission:
-            typeof cfg.tvOnlyAntiRetransmission === 'boolean'
-              ? cfg.tvOnlyAntiRetransmission
-              : prev.tvOnlyAntiRetransmission,
-        }));
-      })
-      .catch(() => undefined);
+    const loadServerPublic = () => {
+      fetch('/api/config/public')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((cfg: (Partial<AppSettingsDoc> & { customPlans?: PlanItem[] }) | null) => {
+          if (!cfg) return;
+          serverConfigOverlay = cfg;
+          if (Array.isArray(cfg.customPlans) && cfg.customPlans.length > 0) {
+            serverPlansOverlay = cfg.customPlans;
+            setPlans(
+              activeTab === 'admin'
+                ? cfg.customPlans
+                : cfg.customPlans.filter((p) => p.active !== false)
+            );
+          }
+          setSettings((prev) => ({
+            ...prev,
+            whatsappNumber: cfg.whatsappNumber || prev.whatsappNumber,
+            pixKey: cfg.pixKey || prev.pixKey,
+            pixType: cfg.pixType || prev.pixType,
+            pixReceiverName: cfg.pixReceiverName || prev.pixReceiverName,
+            pixQrCodeDataUrl:
+              typeof cfg.pixQrCodeDataUrl === 'string' && cfg.pixQrCodeDataUrl
+                ? cfg.pixQrCodeDataUrl
+                : prev.pixQrCodeDataUrl,
+            tvOnlyAntiRetransmission:
+              typeof cfg.tvOnlyAntiRetransmission === 'boolean'
+                ? cfg.tvOnlyAntiRetransmission
+                : prev.tvOnlyAntiRetransmission,
+          }));
+        })
+        .catch(() => undefined);
+    };
+
+    loadServerPublic();
+    window.addEventListener('mengao-catalog-refresh', loadServerPublic);
 
     return () => {
       unsubSettings();
       unsubPlans();
+      window.removeEventListener('mengao-catalog-refresh', loadServerPublic);
     };
   }, [activeTab]);
 

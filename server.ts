@@ -25,12 +25,14 @@ import {
   createDeveloperMessage,
   createPaymentRequest,
   createUserProfile,
+  deleteCustomPlan,
   deleteDeveloperMessageById,
   deletePaymentRequestById,
   findPaymentRequestById,
   findProfileByEmail,
   findProfileById,
   getAdminWhatsapp,
+  getCustomPlans,
   getDeviceStats,
   getPublicAppConfig,
   hasClaimedAdmin,
@@ -43,9 +45,11 @@ import {
   purgeExpiredDeveloperMessages,
   recordPaymentLog,
   sanitizeProfile,
+  ServerPlanRecord,
   setAdminWhatsapp,
   updateProfileById,
   updatePublicAppConfig,
+  upsertCustomPlan,
   upsertDeviceHeartbeat,
   UserProfileRecord,
   verifyClaimedAdminPasscode,
@@ -632,6 +636,7 @@ async function startServer() {
     const siteUrl = cfg.publishedSiteUrl || inferredOrigin;
     res.json({
       ...cfg,
+      customPlans: getCustomPlans(),
       publishedSiteUrl: siteUrl,
       publishedApkUrl:
         cfg.publishedApkUrl === '/api/download-apk' && siteUrl
@@ -667,6 +672,25 @@ async function startServer() {
     };
     const updated = updatePublicAppConfig(body);
     res.json(updated);
+  });
+
+  app.put('/api/admin/plans', requireAdmin, (req, res) => {
+    const body = req.body as {
+      plan?: ServerPlanRecord;
+      seedDefaults?: ServerPlanRecord[];
+    };
+    if (!body?.plan || !body.plan.id) {
+      res.status(400).json({ erro: 'Dados do plano inválidos.' });
+      return;
+    }
+    const plans = upsertCustomPlan(body.plan, body.seedDefaults);
+    res.json({ ok: true, plans });
+  });
+
+  app.delete('/api/admin/plans/:id', requireAdmin, (req, res) => {
+    const body = (req.body || {}) as { seedDefaults?: ServerPlanRecord[] };
+    const plans = deleteCustomPlan(String(req.params.id), body.seedDefaults);
+    res.json({ ok: true, plans });
   });
 
   // 6c. Pré-cadastro de cliente + confirmação "Já efetuei o pagamento" -> "Renovar agora"
@@ -850,9 +874,11 @@ async function startServer() {
     res.send(buffer);
   });
 
+  const DEFAULT_RELEASE_APK_URL =
+    'https://github.com/20061998-max/App-jogos-do-meng-o-v2/releases/download/latest/JogosDoMengao.apk';
+
   function resolveExternalApkUrl(): string | null {
-    const raw = process.env.APK_DOWNLOAD_URL?.trim();
-    if (!raw) return null;
+    const raw = process.env.APK_DOWNLOAD_URL?.trim() || DEFAULT_RELEASE_APK_URL;
     try {
       const parsed = new URL(raw);
       return parsed.protocol === 'https:' ? parsed.toString() : null;
@@ -867,7 +893,7 @@ async function startServer() {
       const stat = fs.statSync(compiledPath);
       res.json({
         hasCompiledApk: true,
-        filename: 'JogosDoMengao-v1.0.0.apk',
+        filename: 'JogosDoMengao.apk',
         sizeBytes: stat.size,
         updatedAt: stat.mtime.toISOString(),
       });
@@ -885,7 +911,7 @@ async function startServer() {
     }
     res.json({
       hasCompiledApk: false,
-      filename: 'JogosDoMengao-Android-Source.zip',
+      filename: 'JogosDoMengao.apk',
       sizeBytes: 0,
       updatedAt: null,
     });
@@ -895,7 +921,7 @@ async function startServer() {
     const compiledPath = resolveCompiledApkPath();
     if (compiledPath) {
       res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-      res.setHeader('Content-Disposition', 'attachment; filename="JogosDoMengao-v1.0.0.apk"');
+      res.setHeader('Content-Disposition', 'attachment; filename="JogosDoMengao.apk"');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.sendFile(compiledPath);
       return;
@@ -907,28 +933,9 @@ async function startServer() {
       return;
     }
 
-    const zip = new JSZip();
-    zip.file(
-      'META-INF/MANIFEST.MF',
-      'Manifest-Version: 1.0\nCreated-By: Jogos do Mengao Build Packaging\nApplication-Id: com.telacast.mirror\nVersion-Name: 1.0.0\n'
-    );
-    zip.file(
-      'README-COMPILAR-APK.txt',
-      [
-        'Jogos do Mengão Android & Android TV (Kotlin + Leanback + Proteção Anti-Retransmissão)',
-        '1. Faça push para o GitHub: o workflow .github/workflows/ci-and-apk.yml compila o .apk real automaticamente.',
-        '2. Ou abra a pasta /android no Android Studio e execute ./gradlew assembleRelease (ou assembleDebug).',
-        '3. Copie o .apk gerado para public/downloads/JogosDoMengao.apk para que as Smart TVs baixem o instalador binario direto.',
-      ].join('\n')
-    );
-    const androidFiles = collectProjectFiles(path.resolve(process.cwd(), 'android'), 'android');
-    for (const rel of androidFiles) {
-      zip.file(rel, fs.readFileSync(path.resolve(process.cwd(), rel)));
-    }
-    const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="JogosDoMengao-Android-Source.zip"');
-    res.send(buffer);
+    res.status(404).json({
+      erro: 'APK ainda não disponível neste servidor. Faça o build ou configure APK_DOWNLOAD_URL.',
+    });
   });
 
   // 8. Vite dev middleware ou static production

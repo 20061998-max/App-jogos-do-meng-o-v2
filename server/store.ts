@@ -81,11 +81,25 @@ export interface AppDeviceRecord {
   lastSeenAt: string;
 }
 
+export interface ServerPlanRecord {
+  id: string;
+  name: string;
+  subtitle: string;
+  priceText: string;
+  days: number;
+  periodLabel: string;
+  features: string[];
+  featured: boolean;
+  active: boolean;
+  sortOrder: number;
+}
+
 interface StoreData {
   profiles: UserProfileRecord[];
   pagamentos: PaymentLogRecord[];
   adminWhatsapp?: string;
   publicConfig?: PublicAppConfig;
+  customPlans?: ServerPlanRecord[];
   devices?: AppDeviceRecord[];
   paymentRequests?: PaymentRequestRecord[];
   developerMessages?: DeveloperMessageRecord[];
@@ -221,6 +235,7 @@ function ensureStore(): StoreData {
             whatsappNumber: parsed.adminWhatsapp || DEFAULT_PUBLIC_CONFIG.whatsappNumber,
           },
       devices: Array.isArray(parsed.devices) ? parsed.devices : [],
+      customPlans: Array.isArray(parsed.customPlans) ? parsed.customPlans : undefined,
       paymentRequests: Array.isArray(parsed.paymentRequests) ? parsed.paymentRequests : [],
       developerMessages: Array.isArray(parsed.developerMessages) ? parsed.developerMessages : [],
       adminPasscodeHash:
@@ -792,4 +807,72 @@ export function clearAllDeveloperMessages(): number {
     saveStore(data);
   }
   return count;
+}
+
+export function getCustomPlans(): ServerPlanRecord[] | undefined {
+  const data = ensureStore();
+  return Array.isArray(data.customPlans) && data.customPlans.length > 0
+    ? [...data.customPlans].sort((a, b) => a.sortOrder - b.sortOrder)
+    : undefined;
+}
+
+export function upsertCustomPlan(
+  input: ServerPlanRecord,
+  seedDefaults?: ServerPlanRecord[]
+): ServerPlanRecord[] {
+  const data = ensureStore();
+  const baseList =
+    Array.isArray(data.customPlans) && data.customPlans.length > 0
+      ? [...data.customPlans]
+      : Array.isArray(seedDefaults)
+        ? [...seedDefaults]
+        : [];
+  const safeId =
+    input.id
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 64) || `plan-${Date.now()}`;
+  const cleanPlan: ServerPlanRecord = {
+    id: safeId,
+    name: String(input.name || 'Plano').trim().slice(0, 60),
+    subtitle: String(input.subtitle || '').trim().slice(0, 140),
+    priceText: String(input.priceText || 'Sob consulta').trim().slice(0, 40),
+    days: Math.max(0, Math.min(3650, Math.floor(Number(input.days) || 0))),
+    periodLabel: String(input.periodLabel || '· Pix ou WhatsApp').trim().slice(0, 40),
+    features: Array.isArray(input.features)
+      ? input.features.map((f) => String(f).trim().slice(0, 160)).filter(Boolean).slice(0, 8)
+      : [],
+    featured: Boolean(input.featured),
+    active: input.active !== false,
+    sortOrder: Math.max(0, Math.min(999, Math.floor(Number(input.sortOrder) || 99))),
+  };
+  const idx = baseList.findIndex((p) => p.id === safeId);
+  if (idx >= 0) {
+    baseList[idx] = cleanPlan;
+  } else {
+    baseList.push(cleanPlan);
+  }
+  baseList.sort((a, b) => a.sortOrder - b.sortOrder);
+  data.customPlans = baseList;
+  saveStore(data);
+  return baseList;
+}
+
+export function deleteCustomPlan(
+  planId: string,
+  seedDefaults?: ServerPlanRecord[]
+): ServerPlanRecord[] {
+  const data = ensureStore();
+  const safeId = planId.replace(/[^a-zA-Z0-9_-]/g, '');
+  const baseList =
+    Array.isArray(data.customPlans) && data.customPlans.length > 0
+      ? [...data.customPlans]
+      : Array.isArray(seedDefaults)
+        ? [...seedDefaults]
+        : [];
+  data.customPlans = baseList.filter((p) => p.id !== safeId);
+  saveStore(data);
+  return data.customPlans;
 }
