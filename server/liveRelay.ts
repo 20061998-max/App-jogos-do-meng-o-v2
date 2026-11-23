@@ -4,6 +4,7 @@ import { verifyFirebaseAdminToken } from './firebaseAuth.ts';
 import { verifyJwt } from './jwt.ts';
 import { verifyOfflineActivationKey } from './license.ts';
 import { canAcceptWsConnection, releaseWsConnection } from './security.ts';
+import { findProfileById } from './store.ts';
 
 export interface LiveBroadcastState {
   isLive: boolean;
@@ -230,6 +231,7 @@ export function attachLiveRelay(server: http.Server): void {
 
       if (type === 'auth:viewer') {
         const adminToken = typeof msg.adminToken === 'string' ? msg.adminToken.trim() : '';
+        const authToken = typeof msg.authToken === 'string' ? msg.authToken.trim() : '';
         let authorized = false;
 
         if (adminToken) {
@@ -239,6 +241,25 @@ export function attachLiveRelay(server: http.Server): void {
           } else {
             const admin = await verifyFirebaseAdminToken(adminToken);
             if (admin) authorized = true;
+          }
+        }
+
+        if (!authorized && authToken) {
+          const subscriberJwt = verifyJwt(authToken);
+          if (subscriberJwt) {
+            if (subscriberJwt.role === 'admin') {
+              authorized = true;
+            } else {
+              const profile = findProfileById(subscriberJwt.sub);
+              if (
+                profile &&
+                profile.status_assinatura === 'ativo' &&
+                profile.expira_em &&
+                new Date(profile.expira_em).getTime() > Date.now()
+              ) {
+                authorized = true;
+              }
+            }
           }
         }
 

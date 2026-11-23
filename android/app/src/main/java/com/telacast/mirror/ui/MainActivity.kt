@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_USER_NAME = "extra_user_name"
         const val EXTRA_PLAN_NAME = "extra_plan_name"
         const val EXTRA_AUTH_MODE = "extra_auth_mode"
+        const val EXTRA_AUTH_TOKEN = "extra_auth_token"
     }
 
     private data class NativeAppItem(
@@ -53,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private var isStreaming = false
     private var pendingLaunchAfterStart = false
     private var authMode: String = "offline"
+    private var authToken: String = ""
 
     private val requestRuntimePermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ -> }
@@ -86,6 +88,7 @@ class MainActivity : AppCompatActivity() {
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
         authMode = intent.getStringExtra(EXTRA_AUTH_MODE) ?: "offline"
+        authToken = intent.getStringExtra(EXTRA_AUTH_TOKEN) ?: ""
         val nome = intent.getStringExtra(EXTRA_USER_NAME) ?: "Assinante"
         val plano = intent.getStringExtra(EXTRA_PLAN_NAME) ?: "Mensal Pro"
         binding.txtAssinante.text = "$nome · $plano"
@@ -128,6 +131,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnModoReceptor.setOnClickListener {
             val viewerIntent = Intent(this, ViewerActivity::class.java).apply {
                 putExtra(EXTRA_AUTH_MODE, authMode)
+                putExtra(EXTRA_AUTH_TOKEN, authToken)
             }
             startActivity(viewerIntent)
         }

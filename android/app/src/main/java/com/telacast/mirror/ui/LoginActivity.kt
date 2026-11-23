@@ -171,6 +171,7 @@ class LoginActivity : AppCompatActivity() {
                         putExtra(MainActivity.EXTRA_USER_NAME, outcome.subscription.nome ?: email)
                         putExtra(MainActivity.EXTRA_PLAN_NAME, outcome.subscription.plano ?: "Mensal Pro")
                         putExtra(MainActivity.EXTRA_AUTH_MODE, "online")
+                        putExtra(MainActivity.EXTRA_AUTH_TOKEN, outcome.accessToken)
                     }
                     startActivity(intent)
                     finish()

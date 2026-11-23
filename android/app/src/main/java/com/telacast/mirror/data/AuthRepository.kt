@@ -35,14 +35,20 @@ class AuthRepository {
     suspend fun loginAndVerifySubscription(email: String, password: String): LoginOutcome =
         withContext(Dispatchers.IO) {
             try {
+                val baseUrl = BuildConfig.API_BASE_URL.trim().trimEnd('/')
+                if (!baseUrl.startsWith("http") || baseUrl.contains("seu-dominio.com")) {
+                    return@withContext LoginOutcome.Error(
+                        "Servidor não configurado neste APK. Use a chave offline acima."
+                    )
+                }
+
                 val authPayload = JSONObject().apply {
                     put("email", email.trim())
                     put("password", password)
                 }
 
                 val authReq = Request.Builder()
-                    .url("${BuildConfig.SUPABASE_URL}/auth/v1/token?grant_type=password")
-                    .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                    .url("$baseUrl/api/auth/login")
                     .addHeader("Content-Type", "application/json")
                     .post(authPayload.toString().toRequestBody(jsonMediaType))
                     .build()
@@ -51,15 +57,18 @@ class AuthRepository {
                     val bodyStr = res.body?.string().orEmpty()
                     if (!res.isSuccessful) {
                         val errMsg = runCatching {
-                            JSONObject(bodyStr).optString("error_description", "Credenciais inválidas.")
-                        }.getOrDefault("Falha na autenticação.")
+                            val json = JSONObject(bodyStr)
+                            json.optString("erro", "")
+                                .takeIf { it.isNotBlank() }
+                                ?: json.optString("error_description", "E-mail ou senha inválidos.")
+                        }.getOrDefault("E-mail ou senha inválidos.")
                         return@withContext LoginOutcome.Error(errMsg)
                     }
-                    JSONObject(bodyStr).getString("access_token")
+                    JSONObject(bodyStr).getString("token")
                 }
 
                 val verifyReq = Request.Builder()
-                    .url("${BuildConfig.API_BASE_URL}/api/verificar-assinatura")
+                    .url("$baseUrl/api/verificar-assinatura")
                     .addHeader("Authorization", "Bearer $accessToken")
                     .get()
                     .build()

@@ -88,7 +88,7 @@ jobs:
   publish-release:
     name: Publicar Release Automática (APK + LG webOS)
     needs: [web-ci, build-android-apk]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -118,7 +118,7 @@ jobs:
   auto-deploy:
     name: Auto-Deploy Produção (Cloud Run / Firebase / Webhook)
     needs: [web-ci, publish-release]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     env:
       HAS_FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}

@@ -354,14 +354,6 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
     disconnectStream();
     setStreamError(null);
 
-    if (retransmissionBlockedForNonTv) {
-      setStreamMode('error');
-      setStreamError(
-        'Proteção Anti-Retransmissão ativa: a retransmissão entre aparelhos é permitida apenas para Smart TVs (Android TV ou LG webOS).'
-      );
-      return;
-    }
-
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${proto}//${window.location.host}/ws/live`);
     ws.binaryType = 'arraybuffer';
@@ -974,7 +966,7 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
               </span>
             </div>
 
-            {retransmissionBlockedForNonTv && (
+            {sourceMode === 'lan_wifi' && retransmissionBlockedForNonTv && (
               <div className="rounded-xl border border-amber-700/60 bg-amber-950/40 p-4 flex items-start gap-3 text-xs text-amber-200">
                 <Lock className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
                 <div>

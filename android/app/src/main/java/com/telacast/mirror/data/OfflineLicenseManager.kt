@@ -111,16 +111,31 @@ object OfflineLicenseManager {
         return prefs.getString(KEY_ADMIN_WHATSAPP, null)?.replace(Regex("\\D"), "").orEmpty()
     }
 
-    fun hasSavedKey(context: Context): Boolean {
+    fun getSavedActivationKey(context: Context): String? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return !prefs.getString(KEY_ACTIVATION_KEY, null).isNullOrBlank()
+        return prefs.getString(KEY_ACTIVATION_KEY, null)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    fun getLiveWebSocketUrl(): String? {
+        val apiBase = BuildConfig.API_BASE_URL.trim().trimEnd('/')
+        if (!apiBase.startsWith("http") || apiBase.contains("seu-dominio.com")) return null
+        val wsBase = when {
+            apiBase.startsWith("https://") -> "wss://${apiBase.removePrefix("https://")}"
+            apiBase.startsWith("http://") -> "ws://${apiBase.removePrefix("http://")}"
+            else -> return null
+        }
+        return "$wsBase/ws/live"
+    }
+
+    fun getAvailablePublicKeySpkiCandidates(context: Context): List<String> {
+        val baked = BuildConfig.LICENSE_PUBLIC_KEY.trim()
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val cached = prefs.getString(KEY_PUBLIC_SPKI, null)?.trim().orEmpty()
+        return listOf(baked, cached).filter { it.isNotBlank() }.distinct()
     }
 
     fun getAvailablePublicKeySpki(context: Context): String? {
-        val baked = BuildConfig.LICENSE_PUBLIC_KEY.trim()
-        if (baked.isNotBlank()) return baked
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_PUBLIC_SPKI, null)?.trim()?.takeIf { it.isNotBlank() }
+        return getAvailablePublicKeySpkiCandidates(context).firstOrNull()
     }
 
     fun verifyAndSaveKey(context: Context, rawKey: String): OfflineLicenseState {
@@ -163,12 +178,14 @@ object OfflineLicenseManager {
             )
         }
 
-        val spkiBase64 = getAvailablePublicKeySpki(context)
-            ?: return OfflineLicenseState(
+        val spkiCandidates = getAvailablePublicKeySpkiCandidates(context)
+        if (spkiCandidates.isEmpty()) {
+            return OfflineLicenseState(
                 deviceCode = deviceCode,
                 ativo = false,
                 motivo = "Chave pública não configurada neste APK. Informe LICENSE_PUBLIC_KEY ou conecte uma vez ao servidor."
             )
+        }
 
         return runCatching {
             val payload = decodeBase64Url(parts[1])
@@ -181,15 +198,19 @@ object OfflineLicenseManager {
                 )
             }
 
-            val spkiBytes = Base64.decode(spkiBase64, Base64.DEFAULT)
-            val publicKey = KeyFactory.getInstance("EC")
-                .generatePublic(X509EncodedKeySpec(spkiBytes))
-
             val sigDer = ieeeP1363ToDer(sigP1363)
-            val verifier = Signature.getInstance("SHA256withECDSA")
-            verifier.initVerify(publicKey)
-            verifier.update(payload)
-            if (!verifier.verify(sigDer)) {
+            val signatureMatched = spkiCandidates.any { candidate ->
+                runCatching {
+                    val spkiBytes = Base64.decode(candidate, Base64.DEFAULT)
+                    val publicKey = KeyFactory.getInstance("EC")
+                        .generatePublic(X509EncodedKeySpec(spkiBytes))
+                    val verifier = Signature.getInstance("SHA256withECDSA")
+                    verifier.initVerify(publicKey)
+                    verifier.update(payload)
+                    verifier.verify(sigDer)
+                }.getOrDefault(false)
+            }
+            if (!signatureMatched) {
                 return@runCatching OfflineLicenseState(
                     deviceCode = deviceCode,
                     ativo = false,

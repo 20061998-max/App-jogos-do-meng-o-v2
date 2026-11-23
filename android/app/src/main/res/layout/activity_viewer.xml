@@ -11,6 +11,37 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal">
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnModoOnline"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:focusable="true"
+            android:text="Ao Vivo Online"
+            android:textAllCaps="false"
+            android:textSize="13sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnModoWifi"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:focusable="true"
+            android:text="Wi-Fi Local (IP)"
+            android:textAllCaps="false"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutWifiInputs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
         <EditText
             android:id="@+id/inputEndereco"
             android:layout_width="0dp"
@@ -52,14 +83,15 @@
         android:layout_height="52dp"
         android:layout_marginTop="10dp"
         android:focusable="true"
-        android:text="Assistir transmissão"
+        android:text="Assistir Ao Vivo Online"
         android:textAllCaps="false" />
 
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_marginTop="12dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:background="#000000">
 
         <ImageView
             android:id="@+id/imgStream"
@@ -73,7 +105,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:text="Informe o IP e o token para assistir pelo App (Celular ou Android TV)"
+            android:gravity="center"
+            android:paddingHorizontal="16dp"
+            android:text="Toque em Assistir Ao Vivo Online para receber a transmissão do administrador com áudio e vídeo"
             android:textColor="#94A3B8"
             android:textSize="14sp" />
     </FrameLayout>
