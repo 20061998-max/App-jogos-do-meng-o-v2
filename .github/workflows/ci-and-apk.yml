@@ -18,15 +18,15 @@ jobs:
 
     steps:
       - name: Baixar código do repositório
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Configurar Node.js 22
-        uses: actions/setup-node@v4
+      - name: Configurar Node.js 24
+        uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Instalar dependências
-        run: npm install --no-audit --no-fund
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Verificar TypeScript (tsc --noEmit)
         run: npm run lint
@@ -38,7 +38,7 @@ jobs:
         run: npm run build
 
       - name: Enviar build Web/PWA como artefato
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: JogosDoMengao-Web-Dist
           path: dist/
@@ -49,19 +49,19 @@ jobs:
 
     steps:
       - name: Baixar código do repositório
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Configurar Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
 
@@ -80,7 +80,7 @@ jobs:
           (cd webos && zip -r ../dist-releases/JogosDoMengao-LG-webOS.zip .)
 
       - name: Publicar APK e webOS como Artefato do Actions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: JogosDoMengao-Releases
           path: dist-releases/
@@ -95,7 +95,7 @@ jobs:
 
     steps:
       - name: Baixar artefatos de release
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: JogosDoMengao-Releases
           path: dist-releases
@@ -120,7 +120,7 @@ jobs:
 
     steps:
       - name: Baixar código do repositório
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Publicar Regras Firestore no Firebase (ageless-catcher-t7cdj)
         if: env.HAS_FIREBASE_SA == 'true'

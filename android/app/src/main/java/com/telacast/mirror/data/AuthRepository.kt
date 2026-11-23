@@ -76,9 +76,9 @@ class AuthRepository {
                     val status = SubscriptionStatus(
                         ativo = json.optBoolean("ativo", false),
                         statusAssinatura = json.optString("status_assinatura", "pendente"),
-                        plano = json.optString("plano", null),
-                        expiraEm = json.optString("expira_em", null),
-                        nome = json.optString("nome", null)
+                        plano = json.optString("plano", "").takeIf { it.isNotBlank() && it != "null" },
+                        expiraEm = json.optString("expira_em", "").takeIf { it.isNotBlank() && it != "null" },
+                        nome = json.optString("nome", "").takeIf { it.isNotBlank() && it != "null" }
                     )
 
                     if (status.ativo) {
