@@ -38,7 +38,7 @@ jobs:
         run: npm run build
 
       - name: Enviar build Web/PWA como artefato
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: JogosDoMengao-Web-Dist
           path: dist/
@@ -80,7 +80,7 @@ jobs:
           (cd webos && zip -r ../dist-releases/JogosDoMengao-LG-webOS.zip .)
 
       - name: Publicar APK e webOS como Artefato do Actions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: JogosDoMengao-Releases
           path: dist-releases/
