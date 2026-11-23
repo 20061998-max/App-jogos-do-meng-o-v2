@@ -103,11 +103,17 @@ jobs:
       - name: Publicar ou atualizar Release "latest" no GitHub
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release upload latest dist-releases/JogosDoMengao.apk dist-releases/JogosDoMengao-LG-webOS.zip --clobber || \
-          gh release create latest dist-releases/JogosDoMengao.apk dist-releases/JogosDoMengao-LG-webOS.zip \
-            --title "Jogos do Mengão — Última Versão Automática" \
-            --notes "APK Android/Android TV (com permissão para abrir apps nativos) e pacote LG webOS gerados automaticamente."
+          if gh release view latest --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release upload latest dist-releases/JogosDoMengao.apk dist-releases/JogosDoMengao-LG-webOS.zip --clobber --repo "$GH_REPO"
+          else
+            gh release create latest dist-releases/JogosDoMengao.apk dist-releases/JogosDoMengao-LG-webOS.zip \
+              --repo "$GH_REPO" \
+              --target "${{ github.sha }}" \
+              --title "Jogos do Mengão — Última Versão Automática" \
+              --notes "APK Android/Android TV (com permissão para abrir apps nativos) e pacote LG webOS gerados automaticamente."
+          fi
 
   auto-deploy:
     name: Auto-Deploy Produção (Cloud Run / Firebase / Webhook)
@@ -135,13 +141,13 @@ jobs:
       - name: Autenticar no Google Cloud (quando GCP_SA_KEY estiver configurada)
         id: gcp-auth
         if: vars.GCP_PROJECT_ID != '' && env.HAS_GCP_SA == 'true'
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Auto-Deploy para Google Cloud Run
         if: vars.GCP_PROJECT_ID != '' && env.HAS_GCP_SA == 'true'
-        uses: google-github-actions/deploy-cloudrun@v2
+        uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ vars.CLOUD_RUN_SERVICE || 'jogos-do-mengao' }}
           region: ${{ vars.GCP_REGION || 'southamerica-east1' }}
