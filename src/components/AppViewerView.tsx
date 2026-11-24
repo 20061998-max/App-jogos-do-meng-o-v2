@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Download, ExternalLink, Lock, Radio, ShieldCheck, Tv } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
-import { DistributionCard } from './DistributionCard';
 import { MengaoShield } from './MengaoShield';
 import { PWAInstallButton } from './PWAInstallButton';
 import { triggerDirectDownload, TvAutoInstallModal } from './TvAutoInstallModal';
@@ -130,9 +129,6 @@ export function AppViewerView() {
           </button>
         </div>
       </div>
-
-      {/* Auto-publicação do Site e APK na área de transmissão */}
-      <DistributionCard appName="Jogos do Mengão" />
 
       {tvModalType && (
         <TvAutoInstallModal
