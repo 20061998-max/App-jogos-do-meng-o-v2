@@ -67,12 +67,14 @@ class ScreenMirrorService : Service() {
         const val EXTRA_SERVER_URL = "extra_server_url"
         const val EXTRA_ADMIN_TOKEN = "extra_admin_token"
         const val EXTRA_BROADCAST_TITLE = "extra_broadcast_title"
+        const val EXTRA_MATCH_MODE = "extra_match_mode"
         const val EXTRA_SOURCE_APP = "extra_source_app"
 
         const val PREFS_BROADCASTER = "telacast_broadcaster_prefs"
         const val KEY_SERVER_URL = "server_url"
         const val KEY_ADMIN_TOKEN = "admin_token"
         const val KEY_BROADCAST_TITLE = "broadcast_title"
+        const val KEY_MATCH_MODE = "match_mode"
         const val KEY_SOURCE_APP = "source_app"
         const val KEY_TARGET_PACKAGE = "target_package"
 
@@ -178,13 +180,16 @@ class ScreenMirrorService : Service() {
                 val title = intent.getStringExtra(EXTRA_BROADCAST_TITLE)?.trim()
                     ?: prefs.getString(KEY_BROADCAST_TITLE, null)?.trim()
                     ?: "Jogos do Mengão · Ao Vivo"
+                val matchMode = intent.getStringExtra(EXTRA_MATCH_MODE)?.trim()
+                    ?: prefs.getString(KEY_MATCH_MODE, null)?.trim()
+                    ?: "flamengo"
                 val sourceApp = intent.getStringExtra(EXTRA_SOURCE_APP)?.trim()
                     ?: prefs.getString(KEY_SOURCE_APP, null)?.trim()
                     ?: "Tela Direta do Celular"
 
                 sessionToken = "TC-${UUID.randomUUID().toString().take(6).uppercase()}"
                 iniciarForegroundService()
-                iniciarCapturaEHttp(resultCode, resultData, serverUrl, adminToken, title, sourceApp)
+                iniciarCapturaEHttp(resultCode, resultData, serverUrl, adminToken, title, matchMode, sourceApp)
             }
         }
         return START_NOT_STICKY
@@ -251,6 +256,7 @@ class ScreenMirrorService : Service() {
         serverUrl: String,
         adminToken: String,
         title: String,
+        matchMode: String,
         sourceApp: String
     ) {
         val projectionManager =
@@ -270,7 +276,7 @@ class ScreenMirrorService : Service() {
             PackageManager.PERMISSION_GRANTED
 
         if (adminToken.isNotBlank() && serverUrl.startsWith("http")) {
-            conectarOnlineRelay(serverUrl, adminToken, title, sourceApp, canCaptureAudio)
+            conectarOnlineRelay(serverUrl, adminToken, title, matchMode, sourceApp, canCaptureAudio)
         }
 
         imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2).apply {
@@ -340,6 +346,7 @@ class ScreenMirrorService : Service() {
         serverUrl: String,
         adminToken: String,
         title: String,
+        matchMode: String,
         sourceApp: String,
         hasAudio: Boolean
     ) {
@@ -357,6 +364,7 @@ class ScreenMirrorService : Service() {
                     put("type", "auth:broadcaster")
                     put("idToken", adminToken)
                     put("title", title)
+                    put("matchMode", matchMode)
                     put("sourceApp", sourceApp)
                     put("hasAudio", hasAudio)
                     put("sampleRate", AUDIO_SAMPLE_RATE)
