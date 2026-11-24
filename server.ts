@@ -218,6 +218,19 @@ async function startServer() {
   app.use(securityHeadersMiddleware(isProduction));
   app.use(express.json({ limit: '512kb' }));
   app.use(exploitShieldMiddleware);
+
+  // Endpoints leves para monitoramento/keep-alive (Render Health Check, UptimeRobot, cron-job.org)
+  app.get(['/healthz', '/api/health'], (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      service: 'jogos-do-mengao',
+      status: 'online',
+      uptimeSec: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   app.use('/api', apiLimiter.middleware);
 
   app.get('/.well-known/security.txt', (_req, res) => {
