@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.telacast.mirror.BuildConfig
+import com.telacast.mirror.data.AppUpdateManager
 import com.telacast.mirror.data.AuthRepository
 import com.telacast.mirror.data.LoginOutcome
 import com.telacast.mirror.data.OfflineLicenseManager
@@ -46,7 +47,8 @@ class LoginActivity : AppCompatActivity() {
             binding.txtErroOffline.visibility = View.VISIBLE
         }
 
-        // Caso o APK não tenha LICENSE_PUBLIC_KEY embutida, tenta baixar silenciosamente em segundo plano se houver rede
+        // Sincroniza configurações do site e verifica atualização automática do APK
+        AppUpdateManager.syncAndCheckForUpdates(this)
         lifecycleScope.launch {
             OfflineLicenseManager.syncPublicKeyIfNeeded(this@LoginActivity)
         }

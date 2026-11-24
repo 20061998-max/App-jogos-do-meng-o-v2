@@ -39,6 +39,7 @@ export interface PublicAppConfig {
   publishedApkUrl: string;
   publishedWebosUrl: string;
   lastPublishedAt: string | null;
+  configVersion?: number;
 }
 
 export type PaymentRequestStatus = 'pendente' | 'liberado';
@@ -104,6 +105,7 @@ interface StoreData {
   paymentRequests?: PaymentRequestRecord[];
   developerMessages?: DeveloperMessageRecord[];
   adminPasscodeHash?: string;
+  configVersion?: number;
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -240,6 +242,10 @@ function ensureStore(): StoreData {
       developerMessages: Array.isArray(parsed.developerMessages) ? parsed.developerMessages : [],
       adminPasscodeHash:
         typeof parsed.adminPasscodeHash === 'string' ? parsed.adminPasscodeHash : undefined,
+      configVersion:
+        typeof parsed.configVersion === 'number' && Number.isFinite(parsed.configVersion)
+          ? parsed.configVersion
+          : 1,
     };
   } catch {
     return {
@@ -261,6 +267,17 @@ function saveStore(data: StoreData): void {
   const tmpFile = `${DATA_FILE}.tmp`;
   fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf-8');
   fs.renameSync(tmpFile, DATA_FILE);
+}
+
+export function getConfigVersion(): number {
+  const data = ensureStore();
+  return typeof data.configVersion === 'number' ? data.configVersion : 1;
+}
+
+function bumpConfigVersion(data: StoreData): number {
+  const next = (typeof data.configVersion === 'number' ? data.configVersion : 1) + 1;
+  data.configVersion = next;
+  return next;
 }
 
 export function hashPassword(password: string): string {
@@ -459,6 +476,7 @@ export function setAdminWhatsapp(rawPhone: string): string {
     ...(data.publicConfig || DEFAULT_PUBLIC_CONFIG),
     whatsappNumber: digits,
   };
+  bumpConfigVersion(data);
   saveStore(data);
   return digits;
 }
@@ -471,6 +489,7 @@ export function getPublicAppConfig(): PublicAppConfig {
     ...cfg,
     pixQrCodeDataUrl: sanitizePixQrCodeUrl(cfg.pixQrCodeDataUrl),
     whatsappNumber: getAdminWhatsapp(),
+    configVersion: typeof data.configVersion === 'number' ? data.configVersion : 1,
   };
 }
 
@@ -519,8 +538,9 @@ export function updatePublicAppConfig(patch: Partial<PublicAppConfig>): PublicAp
   };
   data.adminWhatsapp = nextWhatsapp;
   data.publicConfig = updated;
+  const nextVersion = bumpConfigVersion(data);
   saveStore(data);
-  return updated;
+  return { ...updated, configVersion: nextVersion };
 }
 
 export function autoPublishDistribution(originUrl: string): PublicAppConfig {
@@ -856,6 +876,7 @@ export function upsertCustomPlan(
   }
   baseList.sort((a, b) => a.sortOrder - b.sortOrder);
   data.customPlans = baseList;
+  bumpConfigVersion(data);
   saveStore(data);
   return baseList;
 }
@@ -873,6 +894,7 @@ export function deleteCustomPlan(
         ? [...seedDefaults]
         : [];
   data.customPlans = baseList.filter((p) => p.id !== safeId);
+  bumpConfigVersion(data);
   saveStore(data);
   return data.customPlans;
 }

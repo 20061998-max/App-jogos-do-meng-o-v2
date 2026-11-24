@@ -6,7 +6,7 @@ Plataforma completa com vitrine pública, painel administrativo Google/Firebase 
 
 ## Projeto Firebase & Repositório GitHub Original
 
-- **Repositório GitHub**: `https://github.com/20061998-max/App-jogos-do-meng-o-`
+- **Repositório GitHub**: `https://github.com/20061998-max/App-jogos-do-meng-o-v2`
 - **Projeto Firebase**: `ageless-catcher-t7cdj`
 - **Firestore Database ID**: `ai-studio-telacast-fa5620eb-bbb2-4868-8fdd-1bb1fbc4004d`
 - **Administrador autorizado**: `josuelroque05052020@gmail.com`
@@ -32,7 +32,7 @@ Extraia o projeto em uma pasta local e execute:
 
 ```bash
 git init -b main
-git remote add origin https://github.com/20061998-max/App-jogos-do-meng-o-.git
+git remote add origin https://github.com/20061998-max/App-jogos-do-meng-o-v2.git
 git add .
 git commit -m "Versão completa Jogos do Mengão: vitrine, permissões nativas Android, segurança OWASP e auto-deploy"
 git push -u origin main --force

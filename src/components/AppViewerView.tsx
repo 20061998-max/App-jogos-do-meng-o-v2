@@ -28,7 +28,7 @@ export function AppViewerView() {
         .catch(() => undefined);
     };
     loadStatus();
-    const id = window.setInterval(loadStatus, 10000);
+    const id = window.setInterval(loadStatus, 2500);
     return () => window.clearInterval(id);
   }, []);
 

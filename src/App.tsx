@@ -69,46 +69,105 @@ function MainApp() {
       }
     });
 
+    const initialBuildIdRef = { current: null as string | null };
+    const lastConfigVersionRef = { current: null as number | null };
+
     const loadServerPublic = () => {
-      fetch('/api/config/public')
+      fetch('/api/config/public', { cache: 'no-store' })
         .then((res) => (res.ok ? res.json() : null))
-        .then((cfg: (Partial<AppSettingsDoc> & { customPlans?: PlanItem[] }) | null) => {
-          if (!cfg) return;
-          serverConfigOverlay = cfg;
-          if (Array.isArray(cfg.customPlans) && cfg.customPlans.length > 0) {
-            serverPlansOverlay = cfg.customPlans;
-            setPlans(
-              activeTab === 'admin'
-                ? cfg.customPlans
-                : cfg.customPlans.filter((p) => p.active !== false)
-            );
+        .then(
+          (
+            cfg: (Partial<AppSettingsDoc> & {
+              customPlans?: PlanItem[];
+              configVersion?: number;
+            }) | null
+          ) => {
+            if (!cfg) return;
+            serverConfigOverlay = cfg;
+            if (typeof cfg.configVersion === 'number') {
+              lastConfigVersionRef.current = cfg.configVersion;
+            }
+            if (Array.isArray(cfg.customPlans) && cfg.customPlans.length > 0) {
+              serverPlansOverlay = cfg.customPlans;
+              setPlans(
+                activeTab === 'admin'
+                  ? cfg.customPlans
+                  : cfg.customPlans.filter((p) => p.active !== false)
+              );
+            }
+            setSettings((prev) => ({
+              ...prev,
+              whatsappNumber: cfg.whatsappNumber || prev.whatsappNumber,
+              pixKey: cfg.pixKey || prev.pixKey,
+              pixType: cfg.pixType || prev.pixType,
+              pixReceiverName: cfg.pixReceiverName || prev.pixReceiverName,
+              pixQrCodeDataUrl:
+                typeof cfg.pixQrCodeDataUrl === 'string' && cfg.pixQrCodeDataUrl
+                  ? cfg.pixQrCodeDataUrl
+                  : prev.pixQrCodeDataUrl,
+              tvOnlyAntiRetransmission:
+                typeof cfg.tvOnlyAntiRetransmission === 'boolean'
+                  ? cfg.tvOnlyAntiRetransmission
+                  : prev.tvOnlyAntiRetransmission,
+            }));
           }
-          setSettings((prev) => ({
-            ...prev,
-            whatsappNumber: cfg.whatsappNumber || prev.whatsappNumber,
-            pixKey: cfg.pixKey || prev.pixKey,
-            pixType: cfg.pixType || prev.pixType,
-            pixReceiverName: cfg.pixReceiverName || prev.pixReceiverName,
-            pixQrCodeDataUrl:
-              typeof cfg.pixQrCodeDataUrl === 'string' && cfg.pixQrCodeDataUrl
-                ? cfg.pixQrCodeDataUrl
-                : prev.pixQrCodeDataUrl,
-            tvOnlyAntiRetransmission:
-              typeof cfg.tvOnlyAntiRetransmission === 'boolean'
-                ? cfg.tvOnlyAntiRetransmission
-                : prev.tvOnlyAntiRetransmission,
-          }));
+        )
+        .catch(() => undefined);
+    };
+
+    const checkAppVersionAndSync = () => {
+      fetch('/api/app/version', { cache: 'no-store' })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((info: { buildId?: string; configVersion?: number } | null) => {
+          if (!info) return;
+          if (typeof info.configVersion === 'number') {
+            if (
+              lastConfigVersionRef.current !== null &&
+              info.configVersion !== lastConfigVersionRef.current
+            ) {
+              loadServerPublic();
+            }
+            lastConfigVersionRef.current = info.configVersion;
+          }
+          if (info.buildId) {
+            if (initialBuildIdRef.current === null) {
+              initialBuildIdRef.current = info.buildId;
+            } else if (initialBuildIdRef.current !== info.buildId) {
+              initialBuildIdRef.current = info.buildId;
+              if ('serviceWorker' in navigator) {
+                void navigator.serviceWorker
+                  .getRegistration()
+                  .then((reg) => reg?.update())
+                  .catch(() => undefined);
+              }
+              window.location.reload();
+            }
+          }
         })
         .catch(() => undefined);
     };
 
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        loadServerPublic();
+        checkAppVersionAndSync();
+      }
+    };
+
     loadServerPublic();
+    checkAppVersionAndSync();
+    const versionPollId = window.setInterval(checkAppVersionAndSync, 25000);
     window.addEventListener('mengao-catalog-refresh', loadServerPublic);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
 
     return () => {
       unsubSettings();
       unsubPlans();
+      window.clearInterval(versionPollId);
       window.removeEventListener('mengao-catalog-refresh', loadServerPublic);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
   }, [activeTab]);
 

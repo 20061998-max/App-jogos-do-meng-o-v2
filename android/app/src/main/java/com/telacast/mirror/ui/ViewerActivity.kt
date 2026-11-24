@@ -14,6 +14,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.telacast.mirror.data.AppUpdateManager
 import com.telacast.mirror.data.OfflineLicenseManager
 import com.telacast.mirror.databinding.ActivityViewerBinding
 import com.telacast.mirror.service.ScreenMirrorService
@@ -117,6 +118,7 @@ class ViewerActivity : AppCompatActivity() {
         }
 
         atualizarUiModo()
+        AppUpdateManager.syncAndCheckForUpdates(this)
     }
 
     override fun onResume() {

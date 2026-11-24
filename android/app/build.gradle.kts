@@ -21,8 +21,8 @@ android {
         applicationId = "com.telacast.mirror"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"${propOrDefault("SUPABASE_URL", "https://seu-projeto.supabase.co")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${propOrDefault("SUPABASE_ANON_KEY", "")}\"")

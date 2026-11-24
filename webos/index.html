@@ -141,8 +141,11 @@
       var active = false;
       var unlocked = false;
 
+      var DEFAULT_SERVER_URL = 'https://jogos-do-mengao.onrender.com';
       if (window.location && window.location.protocol && window.location.protocol.indexOf('http') === 0) {
         serverInput.value = window.location.origin;
+      } else {
+        serverInput.value = DEFAULT_SERVER_URL;
       }
 
       var DB_NAME = 'telacast_webos_license_db';
@@ -226,7 +229,8 @@
         if (window.location && window.location.protocol && window.location.protocol.indexOf('http') === 0) {
           return window.location.origin;
         }
-        return '';
+        serverInput.value = DEFAULT_SERVER_URL;
+        return DEFAULT_SERVER_URL;
       }
 
       async function getPublicJwk() {

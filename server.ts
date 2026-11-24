@@ -8,7 +8,12 @@ import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { verifyFirebaseAdminToken } from './server/firebaseAuth.ts';
 import { signJwt, verifyJwt } from './server/jwt.ts';
-import { attachLiveRelay, getLiveBroadcastStatus } from './server/liveRelay.ts';
+import {
+  attachLiveRelay,
+  broadcastAppUpdate,
+  forceStopLiveBroadcast,
+  getLiveBroadcastStatus,
+} from './server/liveRelay.ts';
 import {
   createRateLimiter,
   exploitShieldMiddleware,
@@ -32,6 +37,7 @@ import {
   findProfileByEmail,
   findProfileById,
   getAdminWhatsapp,
+  getConfigVersion,
   getCustomPlans,
   getDeviceStats,
   getPublicAppConfig,
@@ -81,6 +87,7 @@ function resolveCompiledApkPath(): string | null {
 const PUBLIC_CORS_PATHS = new Set([
   '/api/licenca/chave-publica',
   '/api/app/heartbeat',
+  '/api/app/version',
   '/api/config/public',
   '/api/config/whatsapp',
   '/api/live/status',
@@ -88,6 +95,29 @@ const PUBLIC_CORS_PATHS = new Set([
   '/api/download-apk',
   '/api/download-webos',
 ]);
+
+const SERVER_BOOT_TIMESTAMP = Date.now();
+const SERVER_BOOT_ISO = new Date(SERVER_BOOT_TIMESTAMP).toISOString();
+
+function resolveWebBuildId(): string {
+  const candidates = [
+    path.resolve(process.cwd(), 'dist', 'index.html'),
+    path.resolve(process.cwd(), 'src', 'App.tsx'),
+    path.resolve(process.cwd(), 'src', 'components', 'LiveBroadcastPanel.tsx'),
+  ];
+  let maxMtime = 0;
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const mtime = Math.floor(fs.statSync(filePath).mtimeMs);
+        if (mtime > maxMtime) maxMtime = mtime;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return `v-${maxMtime || SERVER_BOOT_TIMESTAMP}`;
+}
 
 function timingSafeStrMatch(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -714,6 +744,11 @@ async function startServer() {
   app.patch('/api/admin/config-whatsapp', requireAdmin, (req, res) => {
     const { whatsappNumber } = req.body as { whatsappNumber?: string };
     const saved = setAdminWhatsapp(whatsappNumber || '');
+    broadcastAppUpdate({
+      kind: 'config',
+      configVersion: getConfigVersion(),
+      buildId: resolveWebBuildId(),
+    });
     res.json({ whatsappNumber: saved });
   });
 
@@ -729,6 +764,11 @@ async function startServer() {
       publishedSiteUrl?: string;
     };
     const updated = updatePublicAppConfig(body);
+    broadcastAppUpdate({
+      kind: 'config',
+      configVersion: getConfigVersion(),
+      buildId: resolveWebBuildId(),
+    });
     res.json(updated);
   });
 
@@ -742,12 +782,22 @@ async function startServer() {
       return;
     }
     const plans = upsertCustomPlan(body.plan, body.seedDefaults);
+    broadcastAppUpdate({
+      kind: 'config',
+      configVersion: getConfigVersion(),
+      buildId: resolveWebBuildId(),
+    });
     res.json({ ok: true, plans });
   });
 
   app.delete('/api/admin/plans/:id', requireAdmin, (req, res) => {
     const body = (req.body || {}) as { seedDefaults?: ServerPlanRecord[] };
     const plans = deleteCustomPlan(String(req.params.id), body.seedDefaults);
+    broadcastAppUpdate({
+      kind: 'config',
+      configVersion: getConfigVersion(),
+      buildId: resolveWebBuildId(),
+    });
     res.json({ ok: true, plans });
   });
 
@@ -876,10 +926,42 @@ async function startServer() {
       process.env.APP_URL?.replace(/\/$/, '') || (host ? `${proto}://${host}` : '');
     const targetOrigin = (siteUrl || fallbackOrigin).trim().replace(/\/$/, '');
     const published = autoPublishDistribution(targetOrigin);
+    broadcastAppUpdate({
+      kind: 'config',
+      configVersion: getConfigVersion(),
+      buildId: resolveWebBuildId(),
+    });
     res.json({
       published,
       pwaInstallUrl: targetOrigin ? `${targetOrigin}/?mode=app` : '/?mode=app',
     });
+  });
+
+  app.post('/api/admin/broadcast-handoff-token', requireAdmin, (req: AuthedRequest, res) => {
+    const adminEmail =
+      req.googleAdmin?.email || req.authUser?.email || 'josuelroque05052020@gmail.com';
+    const handoffToken = signJwt({
+      sub: 'admin-passcode',
+      email: adminEmail,
+      role: 'admin',
+    });
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+    const host = req.get('host') || '';
+    const serverUrl =
+      process.env.APP_URL?.replace(/\/$/, '') || (host ? `${proto}://${host}` : '');
+    const wsUrl = serverUrl
+      ? serverUrl.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:') + '/ws/live'
+      : '';
+    res.json({
+      token: handoffToken,
+      serverUrl,
+      wsUrl,
+    });
+  });
+
+  app.post('/api/admin/live/stop', requireAdmin, (_req, res) => {
+    forceStopLiveBroadcast();
+    res.json({ ok: true, state: getLiveBroadcastStatus() });
   });
 
   app.get('/api/licenca/chave-publica', (_req, res) => {
@@ -934,6 +1016,14 @@ async function startServer() {
 
   const DEFAULT_RELEASE_APK_URL =
     'https://github.com/20061998-max/App-jogos-do-meng-o-v2/releases/download/latest/JogosDoMengao.apk';
+  const GITHUB_LATEST_RELEASE_API =
+    'https://api.github.com/repos/20061998-max/App-jogos-do-meng-o-v2/releases/tags/latest';
+
+  let cachedExternalApkMeta: {
+    sizeBytes: number;
+    updatedAt: string;
+    fetchedAt: number;
+  } | null = null;
 
   function resolveExternalApkUrl(): string | null {
     const raw = process.env.APK_DOWNLOAD_URL?.trim() || DEFAULT_RELEASE_APK_URL;
@@ -945,33 +1035,74 @@ async function startServer() {
     }
   }
 
-  app.get('/api/apk-status', (_req, res) => {
+  async function resolveApkStatusSnapshot() {
     const compiledPath = resolveCompiledApkPath();
     if (compiledPath) {
       const stat = fs.statSync(compiledPath);
-      res.json({
+      return {
         hasCompiledApk: true,
         filename: 'JogosDoMengao.apk',
         sizeBytes: stat.size,
         updatedAt: stat.mtime.toISOString(),
-      });
-      return;
+        downloadUrl: '/api/download-apk',
+      };
     }
+
     const externalApkUrl = resolveExternalApkUrl();
     if (externalApkUrl) {
-      res.json({
+      const now = Date.now();
+      if (!cachedExternalApkMeta || now - cachedExternalApkMeta.fetchedAt > 60_000) {
+        try {
+          const resp = await fetch(GITHUB_LATEST_RELEASE_API, {
+            headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'JogosDoMengao-Server' },
+          });
+          if (resp.ok) {
+            const rel = (await resp.json()) as {
+              published_at?: string;
+              assets?: { name?: string; size?: number; updated_at?: string }[];
+            };
+            const asset = rel.assets?.find((a) => a.name === 'JogosDoMengao.apk');
+            if (asset) {
+              cachedExternalApkMeta = {
+                sizeBytes: Number(asset.size) || 0,
+                updatedAt: asset.updated_at || rel.published_at || SERVER_BOOT_ISO,
+                fetchedAt: now,
+              };
+            }
+          }
+        } catch {
+          // fallback abaixo
+        }
+      }
+      return {
         hasCompiledApk: true,
         filename: 'JogosDoMengao.apk',
-        sizeBytes: 0,
-        updatedAt: new Date().toISOString(),
-      });
-      return;
+        sizeBytes: cachedExternalApkMeta?.sizeBytes ?? 0,
+        updatedAt: cachedExternalApkMeta?.updatedAt ?? SERVER_BOOT_ISO,
+        downloadUrl: '/api/download-apk',
+      };
     }
-    res.json({
+
+    return {
       hasCompiledApk: false,
       filename: 'JogosDoMengao.apk',
       sizeBytes: 0,
       updatedAt: null,
+      downloadUrl: null,
+    };
+  }
+
+  app.get('/api/apk-status', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await resolveApkStatusSnapshot());
+  });
+
+  app.get('/api/app/version', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      buildId: resolveWebBuildId(),
+      configVersion: getConfigVersion(),
+      apk: await resolveApkStatusSnapshot(),
     });
   });
 

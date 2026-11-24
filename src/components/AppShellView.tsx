@@ -19,6 +19,8 @@ import {
   Square,
   Tv,
   UserCheck,
+  Volume2,
+  VolumeX,
   Wifi,
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -63,6 +65,7 @@ interface LiveStatusSnapshot {
   sourceApp: string;
   hasAudio: boolean;
   sampleRate: number;
+  startedAt?: string | null;
   viewerCount: number;
 }
 
@@ -79,6 +82,9 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
   const [streamError, setStreamError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [screenFitMode, setScreenFitMode] = useState<'auto' | 'fill' | 'original'>('auto');
+  const [audioMuted, setAudioMuted] = useState(false);
+  const [audioSuspended, setAudioSuspended] = useState(false);
+  const [userStoppedLive, setUserStoppedLive] = useState(false);
 
   const [liveStatus, setLiveStatus] = useState<LiveStatusSnapshot | null>(null);
 
@@ -123,7 +129,12 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
   const abortRef = useRef<AbortController | null>(null);
   const wsViewerRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const nextAudioTimeRef = useRef<number>(0);
+  const sampleRateRef = useRef<number>(24000);
+  const audioMutedRef = useRef<boolean>(false);
+  audioMutedRef.current = audioMuted;
+  const lastAutoStartedAtRef = useRef<string | null>(null);
   const streamModeRef = useRef<'idle' | 'live' | 'error'>('idle');
   streamModeRef.current = streamMode;
 
@@ -157,7 +168,7 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
         .catch(() => undefined);
     };
     loadLiveStatus();
-    const id = window.setInterval(loadLiveStatus, 8000);
+    const id = window.setInterval(loadLiveStatus, 2500);
     return () => window.clearInterval(id);
   }, []);
 
@@ -198,6 +209,33 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
   const chosenPlan = activePlans.find((p) => p.name === selectedRenewalPlan) || activePlans[0];
   const retransmissionBlockedForNonTv =
     settings.tvOnlyAntiRetransmission && !isTvDevice && !isAuthorizedAdmin;
+
+  // Entra automaticamente na live (vídeo + áudio, sem comentários) quando o admin inicia transmissão
+  useEffect(() => {
+    if (!liveStatus?.isLive) {
+      lastAutoStartedAtRef.current = null;
+      setUserStoppedLive(false);
+      return;
+    }
+    if (liveStatus.sampleRate) {
+      sampleRateRef.current = liveStatus.sampleRate;
+    }
+    const broadcastKey = liveStatus.startedAt || 'active';
+    if (lastAutoStartedAtRef.current !== broadcastKey) {
+      lastAutoStartedAtRef.current = broadcastKey;
+      setUserStoppedLive(false);
+    }
+    if (
+      isAppUnlocked &&
+      appTab === 'player' &&
+      sourceMode === 'live_server' &&
+      streamMode === 'idle' &&
+      !userStoppedLive
+    ) {
+      void connectToLiveServerStream();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAppUnlocked, appTab, sourceMode, liveStatus?.isLive, liveStatus?.startedAt, streamMode, userStoppedLive]);
 
   async function handleAdminSignIn() {
     setAdminAuthError(null);
@@ -341,18 +379,48 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
       }
       wsViewerRef.current = null;
     }
+    if (gainNodeRef.current) {
+      try {
+        gainNodeRef.current.disconnect();
+      } catch {
+        // ignore
+      }
+      gainNodeRef.current = null;
+    }
     if (audioCtxRef.current) {
       void audioCtxRef.current.close().catch(() => undefined);
       audioCtxRef.current = null;
     }
     nextAudioTimeRef.current = 0;
+    setAudioSuspended(false);
     setStreamMode('idle');
     setStreamError(null);
+  }
+
+  async function unlockAndToggleMute(forceUnmute = false) {
+    const ctx = audioCtxRef.current;
+    if (ctx && ctx.state === 'suspended') {
+      await ctx.resume().catch(() => undefined);
+      setAudioSuspended(ctx.state === 'suspended');
+      if (forceUnmute) {
+        setAudioMuted(false);
+        if (gainNodeRef.current) {
+          gainNodeRef.current.gain.value = 1;
+        }
+        return;
+      }
+    }
+    const nextMuted = forceUnmute ? false : !audioMuted;
+    setAudioMuted(nextMuted);
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = nextMuted ? 0 : 1;
+    }
   }
 
   async function connectToLiveServerStream() {
     disconnectStream();
     setStreamError(null);
+    setUserStoppedLive(false);
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${proto}//${window.location.host}/ws/live`);
@@ -360,14 +428,24 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
     wsViewerRef.current = ws;
     setStreamMode('live');
 
-    let freshAdminToken = await getAdminToken();
+    const freshAdminToken = await getAdminToken();
+    sampleRateRef.current = liveStatus?.sampleRate || 24000;
 
     const AudioCtx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (AudioCtx) {
-      audioCtxRef.current = new AudioCtx({ sampleRate: liveStatus?.sampleRate || 24000 });
+      const ctx = new AudioCtx({ sampleRate: sampleRateRef.current });
+      const gain = ctx.createGain();
+      gain.gain.value = audioMutedRef.current ? 0 : 1;
+      gain.connect(ctx.destination);
+      audioCtxRef.current = ctx;
+      gainNodeRef.current = gain;
       nextAudioTimeRef.current = 0;
+      if (ctx.state === 'suspended') {
+        void ctx.resume().catch(() => undefined);
+      }
+      setAudioSuspended(ctx.state === 'suspended');
     }
 
     ws.onopen = () => {
@@ -389,6 +467,10 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
             erro?: string;
             state?: LiveStatusSnapshot;
           };
+          if (msg.type === 'app:update') {
+            window.dispatchEvent(new Event('mengao-catalog-refresh'));
+            return;
+          }
           if (msg.type === 'auth:error') {
             setStreamMode('error');
             setStreamError(msg.erro || 'Assinatura necessária para assistir ao vivo.');
@@ -396,6 +478,9 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
           }
           if (msg.state) {
             setLiveStatus(msg.state);
+            if (msg.state.sampleRate) {
+              sampleRateRef.current = msg.state.sampleRate;
+            }
           }
         } catch {
           // ignore
@@ -427,20 +512,24 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
       } else if (kind === 0x02 && audioCtxRef.current) {
         const ctx = audioCtxRef.current;
         if (ctx.state === 'suspended') {
-          void ctx.resume().catch(() => undefined);
+          setAudioSuspended(true);
+          return;
+        }
+        if (audioSuspended) {
+          setAudioSuspended(false);
         }
         const pcmBytes = buf.slice(1);
         const samplesCount = Math.floor(pcmBytes.byteLength / 2);
         if (samplesCount === 0) return;
         const view = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength);
-        const audioBuffer = ctx.createBuffer(1, samplesCount, liveStatus?.sampleRate || 24000);
+        const audioBuffer = ctx.createBuffer(1, samplesCount, sampleRateRef.current || 24000);
         const channel = audioBuffer.getChannelData(0);
         for (let i = 0; i < samplesCount; i += 1) {
           channel[i] = view.getInt16(i * 2, true) / 32768;
         }
         const src = ctx.createBufferSource();
         src.buffer = audioBuffer;
-        src.connect(ctx.destination);
+        src.connect(gainNodeRef.current || ctx.destination);
         const now = ctx.currentTime;
         const startAt = Math.max(now, nextAudioTimeRef.current);
         src.start(startAt);
@@ -1041,10 +1130,15 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={
-                        streamMode === 'live' ? disconnectStream : connectToLiveServerStream
-                      }
-                      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
+                      onClick={() => {
+                        if (streamMode === 'live') {
+                          setUserStoppedLive(true);
+                          disconnectStream();
+                        } else {
+                          void connectToLiveServerStream();
+                        }
+                      }}
+                      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                         streamMode === 'live'
                           ? 'bg-zinc-700 text-white hover:bg-zinc-600'
                           : 'bg-[#C8102E] text-white hover:bg-red-700'
@@ -1062,10 +1156,29 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
                         </>
                       )}
                     </button>
+                    {streamMode === 'live' && (
+                      <button
+                        type="button"
+                        onClick={() => void unlockAndToggleMute(false)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 whitespace-nowrap cursor-pointer"
+                      >
+                        {audioMuted || audioSuspended ? (
+                          <>
+                            <VolumeX className="h-3.5 w-3.5 text-red-400" />
+                            {audioSuspended ? 'Ativar Áudio' : 'Sem som'}
+                          </>
+                        ) : (
+                          <>
+                            <Volume2 className="h-3.5 w-3.5 text-emerald-400" />
+                            Áudio ON
+                          </>
+                        )}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={toggleFullscreenGameMode}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 whitespace-nowrap"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 whitespace-nowrap cursor-pointer"
                     >
                       {isFullscreen ? (
                         <>
@@ -1209,6 +1322,28 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
                           : 'h-full w-full object-contain'
                     }
                   />
+                  {/* Selo limpo de live (somente vídeo e áudio, sem comentários ou reações) */}
+                  {sourceMode === 'live_server' && (
+                    <div className="pointer-events-none absolute top-3 left-3 flex items-center gap-2 rounded-md bg-black/70 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur-sm">
+                      <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                      <span>{liveStatus?.isLive ? 'AO VIVO' : 'CONECTADO'}</span>
+                      {liveStatus?.isLive && (
+                        <span className="font-normal text-zinc-300">
+                          · {liveStatus.viewerCount} assistindo
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {sourceMode === 'live_server' && audioSuspended && (
+                    <button
+                      type="button"
+                      onClick={() => void unlockAndToggleMute(true)}
+                      className="absolute bottom-4 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 rounded-full bg-[#C8102E] px-4 py-2 text-xs font-bold text-white shadow-xl hover:bg-red-700 cursor-pointer"
+                    >
+                      <Volume2 className="h-4 w-4" />
+                      Tocar para ativar o áudio
+                    </button>
+                  )}
                   <div className="pointer-events-none absolute bottom-3 right-4 font-mono text-[11px] text-white/35">
                     {settings.appName} · {offlineLicense?.deviceCode || 'ADMIN'}
                   </div>

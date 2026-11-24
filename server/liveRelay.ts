@@ -76,6 +76,39 @@ function stopBroadcast() {
   broadcastState();
 }
 
+let activeWss: WebSocketServer | null = null;
+
+export function broadcastAppUpdate(payload: {
+  kind: 'config' | 'app';
+  configVersion: number;
+  buildId?: string;
+}): void {
+  if (!activeWss) return;
+  const msg = JSON.stringify({ type: 'app:update', ...payload });
+  for (const client of activeWss.clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
+  }
+}
+
+export function forceStopLiveBroadcast(): void {
+  if (broadcasterSocket) {
+    try {
+      safeSendJson(broadcasterSocket, {
+        type: 'broadcast:superseded',
+        erro: 'Transmissão encerrada pelo Painel Admin.',
+      });
+      broadcasterSocket.role = undefined;
+      broadcasterSocket.close(1000, 'Stopped by admin');
+    } catch {
+      // ignore
+    }
+    broadcasterSocket = null;
+  }
+  stopBroadcast();
+}
+
 function rawDataToBuffer(data: RawData): Buffer {
   if (Buffer.isBuffer(data)) return data;
   if (Array.isArray(data)) return Buffer.concat(data);
@@ -87,6 +120,7 @@ export function attachLiveRelay(server: http.Server): void {
     noServer: true,
     maxPayload: 2 * 1024 * 1024,
   });
+  activeWss = wss;
 
   server.on('upgrade', (request, socket, head) => {
     const reqUrl = new URL(request.url || '/', 'http://localhost');
