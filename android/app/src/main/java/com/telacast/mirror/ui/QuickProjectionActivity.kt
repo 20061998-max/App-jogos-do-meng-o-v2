@@ -46,6 +46,10 @@ class QuickProjectionActivity : AppCompatActivity() {
                         prefs.getString(ScreenMirrorService.KEY_BROADCAST_TITLE, "Jogos do Mengão · Ao Vivo")
                     )
                     putExtra(
+                        ScreenMirrorService.EXTRA_MATCH_MODE,
+                        prefs.getString(ScreenMirrorService.KEY_MATCH_MODE, "flamengo")
+                    )
+                    putExtra(
                         ScreenMirrorService.EXTRA_SOURCE_APP,
                         if (directScreen) "Tela Direta do Celular"
                         else prefs.getString(ScreenMirrorService.KEY_SOURCE_APP, "App Nativo")
