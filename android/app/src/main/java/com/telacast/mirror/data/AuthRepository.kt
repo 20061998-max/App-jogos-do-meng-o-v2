@@ -15,7 +15,8 @@ data class SubscriptionStatus(
     val statusAssinatura: String,
     val plano: String?,
     val expiraEm: String?,
-    val nome: String?
+    val nome: String?,
+    val role: String = "user"
 )
 
 sealed class LoginOutcome {
@@ -87,7 +88,8 @@ class AuthRepository {
                         statusAssinatura = json.optString("status_assinatura", "pendente"),
                         plano = json.optString("plano", "").takeIf { it.isNotBlank() && it != "null" },
                         expiraEm = json.optString("expira_em", "").takeIf { it.isNotBlank() && it != "null" },
-                        nome = json.optString("nome", "").takeIf { it.isNotBlank() && it != "null" }
+                        nome = json.optString("nome", "").takeIf { it.isNotBlank() && it != "null" },
+                        role = json.optString("role", "user").ifBlank { "user" }
                     )
 
                     if (status.ativo) {
