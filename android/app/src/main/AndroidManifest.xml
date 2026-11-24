@@ -86,6 +86,7 @@
 
         <activity
             android:name=".ui.ViewerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false" />
 
         <service
