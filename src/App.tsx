@@ -46,7 +46,7 @@ function MainApp() {
         pixType: serverConfigOverlay.pixType || next.pixType,
         pixReceiverName: serverConfigOverlay.pixReceiverName || next.pixReceiverName,
         pixQrCodeDataUrl:
-          serverConfigOverlay.pixQrCodeDataUrl !== undefined
+          serverConfigOverlay.pixQrCodeDataUrl && serverConfigOverlay.pixQrCodeDataUrl !== ''
             ? serverConfigOverlay.pixQrCodeDataUrl
             : next.pixQrCodeDataUrl,
         tvOnlyAntiRetransmission:

@@ -34,18 +34,34 @@ const PLAN_TO_CODE: Record<string, number> = {
   Outros: 8,
 };
 
+function normalizePemEnv(raw: string | undefined): string {
+  if (!raw) return '';
+  return raw
+    .trim()
+    .replace(/^["']+|["']+$/g, '')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .trim();
+}
+
 function getOrCreateKeypair(): StoredKeypair {
-  const envPriv = process.env.LICENSE_PRIVATE_KEY_PEM?.trim();
-  const envPub = process.env.LICENSE_PUBLIC_KEY_PEM?.trim();
+  const envPriv = normalizePemEnv(process.env.LICENSE_PRIVATE_KEY_PEM);
+  const envPub = normalizePemEnv(process.env.LICENSE_PUBLIC_KEY_PEM);
   if (envPriv && envPub) {
-    const pubKeyObj = crypto.createPublicKey(envPub);
-    const spkiDer = pubKeyObj.export({ type: 'spki', format: 'der' }) as Buffer;
-    return {
-      privateKeyPem: envPriv,
-      publicKeyPem: envPub,
-      publicKeyJwk: pubKeyObj.export({ format: 'jwk' }) as JsonWebKey,
-      publicKeySpkiBase64: spkiDer.toString('base64'),
-    };
+    try {
+      const pubKeyObj = crypto.createPublicKey(envPub);
+      crypto.createPrivateKey(envPriv);
+      const spkiDer = pubKeyObj.export({ type: 'spki', format: 'der' }) as Buffer;
+      return {
+        privateKeyPem: envPriv,
+        publicKeyPem: envPub,
+        publicKeyJwk: pubKeyObj.export({ format: 'jwk' }) as JsonWebKey,
+        publicKeySpkiBase64: spkiDer.toString('base64'),
+      };
+    } catch (err) {
+      console.error('Chaves PEM inválidas nas variáveis de ambiente:', err);
+    }
   }
 
   if (!fs.existsSync(DATA_DIR)) {
