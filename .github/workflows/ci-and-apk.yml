@@ -94,11 +94,17 @@ jobs:
       contents: write
 
     steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Baixar artefatos de release
         uses: actions/download-artifact@v8
         with:
           name: JogosDoMengao-Releases
-          path: dist-releases
+          path: /tmp/dist-releases
 
       - name: Publicar ou atualizar Release "latest" no GitHub
         env:
@@ -106,26 +112,19 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if gh release view latest --repo "$GH_REPO" >/dev/null 2>&1; then
-            gh release upload latest dist-releases/JogosDoMengao.apk dist-releases/JogosDoMengao-LG-webOS.zip --clobber --repo "$GH_REPO"
+            gh release upload latest /tmp/dist-releases/JogosDoMengao.apk /tmp/dist-releases/JogosDoMengao-LG-webOS.zip --clobber --repo "$GH_REPO"
           else
-            gh release create latest dist-releases/JogosDoMengao.apk dist-releases/JogosDoMengao-LG-webOS.zip \
+            gh release create latest /tmp/dist-releases/JogosDoMengao.apk /tmp/dist-releases/JogosDoMengao-LG-webOS.zip \
               --repo "$GH_REPO" \
               --target "${{ github.sha }}" \
               --title "Jogos do Mengão — Última Versão Automática" \
               --notes "APK Android/Android TV (com permissão para abrir apps nativos) e pacote LG webOS gerados automaticamente."
           fi
 
-      - name: Atualizar APK embutido no servidor (public/downloads)
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 1
-          clean: false
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Gravar JogosDoMengao.apk atualizado no repositório
         run: |
           mkdir -p public/downloads
-          cp dist-releases/JogosDoMengao.apk public/downloads/JogosDoMengao.apk
+          cp /tmp/dist-releases/JogosDoMengao.apk public/downloads/JogosDoMengao.apk
           if [ -n "$(git status --porcelain public/downloads/JogosDoMengao.apk)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
