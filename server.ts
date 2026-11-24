@@ -112,6 +112,20 @@ function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
     res.status(401).json({ erro: 'Token inválido ou expirado.' });
     return;
   }
+  if (payload.sub === 'admin-passcode' && payload.role === 'admin') {
+    req.authUser = {
+      id: 'admin-passcode',
+      nome: 'Administrador · Jogos do Mengão',
+      email: payload.email || 'josuelroque05052020@gmail.com',
+      role: 'admin',
+      status_assinatura: 'ativo',
+      plano: 'Administrador',
+      expira_em: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      criado_em: new Date().toISOString(),
+    };
+    next();
+    return;
+  }
   const profile = findProfileById(payload.sub);
   if (!profile) {
     res.status(404).json({ erro: 'Perfil de usuário não encontrado.' });
@@ -293,6 +307,37 @@ async function startServer() {
     if (!email?.trim() || !password) {
       res.status(400).json({ erro: 'Informe e-mail e senha.' });
       return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (cleanEmail === 'josuelroque05052020@gmail.com') {
+      const envPasscode = process.env.ADMIN_PASSCODE?.trim();
+      const adminMatched = envPasscode
+        ? timingSafeStrMatch(password.trim(), envPasscode)
+        : verifyClaimedAdminPasscode(password.trim());
+      if (adminMatched) {
+        authLimiter.recordSuccess(req);
+        const token = signJwt({
+          sub: 'admin-passcode',
+          email: 'josuelroque05052020@gmail.com',
+          role: 'admin',
+        });
+        res.json({
+          token,
+          profile: {
+            id: 'admin-passcode',
+            nome: 'Administrador · Jogos do Mengão',
+            email: 'josuelroque05052020@gmail.com',
+            role: 'admin',
+            status_assinatura: 'ativo',
+            plano: 'Administrador',
+            expira_em: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+            criado_em: new Date().toISOString(),
+            dias_restantes: 365,
+          },
+        });
+        return;
+      }
     }
 
     const user = findProfileByEmail(email);

@@ -26,9 +26,9 @@ android {
 
         buildConfigField("String", "SUPABASE_URL", "\"${propOrDefault("SUPABASE_URL", "https://seu-projeto.supabase.co")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${propOrDefault("SUPABASE_ANON_KEY", "")}\"")
-        buildConfigField("String", "API_BASE_URL", "\"${propOrDefault("API_BASE_URL", "https://seu-dominio.com")}\"")
-        buildConfigField("String", "LICENSE_PUBLIC_KEY", "\"${propOrDefault("LICENSE_PUBLIC_KEY", "")}\"")
-        buildConfigField("String", "ADMIN_WHATSAPP", "\"${propOrDefault("ADMIN_WHATSAPP", "")}\"")
+        buildConfigField("String", "API_BASE_URL", "\"${propOrDefault("API_BASE_URL", "https://jogos-do-mengao.onrender.com")}\"")
+        buildConfigField("String", "LICENSE_PUBLIC_KEY", "\"${propOrDefault("LICENSE_PUBLIC_KEY", "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEkVVaVo/Pjsv4PvoeZIJvUnQlzg0WmSuKZsnR/i10u2+/fF0QraX4VWIrCxsVLWi9hAujF9DEXuJIcNUTo97FrA==")}\"")
+        buildConfigField("String", "ADMIN_WHATSAPP", "\"${propOrDefault("ADMIN_WHATSAPP", "5548998091948")}\"")
     }
 
     buildTypes {

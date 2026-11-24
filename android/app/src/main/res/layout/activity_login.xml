@@ -166,7 +166,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="Ou entre online com sua conta Supabase"
+            android:text="Ou entre online com sua conta (Assinante ou Admin)"
             android:textColor="#64748B"
             android:textSize="13sp"
             android:textStyle="bold" />
