@@ -50,6 +50,7 @@ import {
 } from '../lib/storeCatalog';
 import { formatDatePtBr } from '../types';
 import { AdminPasscodeForm } from './AdminPasscodeForm';
+import { CinemaAdminSection } from './CinemaAdminSection';
 import { DistributionCard } from './DistributionCard';
 import { LiveBroadcastPanel } from './LiveBroadcastPanel';
 import { MengaoShield } from './MengaoShield';
@@ -821,8 +822,9 @@ export function AdminView({ settings, plans }: AdminViewProps) {
         </div>
       )}
 
-      {/* 0. Função Transmitir Ao Vivo (Escolher App Nativo) + Auto-Publicação Site e APK */}
+      {/* 0. Função Transmitir Ao Vivo (Escolher App Nativo) + Cinema + Auto-Publicação Site e APK */}
       <LiveBroadcastPanel getAdminToken={getAdminToken} appName={settings.appName} />
+      <CinemaAdminSection getAdminToken={getAdminToken} />
       <DistributionCard appName={settings.appName} adminToken={adminIdToken || passcodeToken} />
 
       {/* 1. Pessoas usando o aplicativo em tempo real */}
