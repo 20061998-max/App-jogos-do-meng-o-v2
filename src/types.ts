@@ -1,4 +1,4 @@
-export type AppTab = 'inicio' | 'assistir' | 'assinante' | 'admin';
+export type AppTab = 'inicio' | 'cinema' | 'assistir' | 'assinante' | 'admin';
 
 export type SubscriptionStatus = 'ativo' | 'pendente' | 'vencido' | 'bloqueado';
 

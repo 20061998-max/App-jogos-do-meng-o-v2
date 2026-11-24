@@ -160,6 +160,197 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Tipo de Jogo (Flamengo ou Outro Jogo) e Nome da Transmissão -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            app:cardBackgroundColor="#18181B"
+            app:strokeColor="#27272A"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Jogo e Nome da Transmissão"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Quando o Flamengo não jogar, escolha Outro Jogo e defina o nome da partida (pode alterar mesmo ao vivo)."
+                    android:textColor="#A1A1AA"
+                    android:textSize="12sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnModoFlamengo"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_weight="1"
+                        android:text="Jogo do Flamengo"
+                        android:textAllCaps="false"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        app:backgroundTint="#C8102E" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnModoOutroJogo"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:text="Outro Jogo"
+                        android:textAllCaps="false"
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp"
+                        app:strokeColor="#3F3F46" />
+                </LinearLayout>
+
+                <EditText
+                    android:id="@+id/inputNomeJogo"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="10dp"
+                    android:background="#09090B"
+                    android:hint="Ex: Flamengo x Palmeiras ou Outro Jogo Ao Vivo"
+                    android:inputType="text"
+                    android:maxLength="120"
+                    android:paddingHorizontal="12dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#71717A"
+                    android:textSize="13sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAtualizarNomeJogo"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="8dp"
+                    android:text="Salvar / Atualizar Nome Ao Vivo"
+                    android:textAllCaps="false"
+                    app:backgroundTint="#27272A" />
+
+                <TextView
+                    android:id="@+id/txtStatusNomeJogo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Modo atual: Jogo do Flamengo"
+                    android:textColor="#A1A1AA"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Cinema: Liberar Ingresso por CPF (Sem Registro) -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            app:cardBackgroundColor="#18181B"
+            app:strokeColor="#27272A"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Cinema · Liberar Ingresso por CPF"
+                        android:textColor="#FFFFFF"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnAtualizarFilmes"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="10dp"
+                        android:text="Atualizar"
+                        android:textAllCaps="false"
+                        android:textColor="#E4E4E7"
+                        android:textSize="11sp"
+                        app:strokeColor="#3F3F46" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Após receber o Pix do filme, digite apenas o CPF do cliente abaixo. Não precisa cadastro e o acesso expira ao final do filme."
+                    android:textColor="#A1A1AA"
+                    android:textSize="12sp" />
+
+                <Spinner
+                    android:id="@+id/spinnerCinemaFilmes"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="10dp"
+                    android:background="#27272A" />
+
+                <EditText
+                    android:id="@+id/inputCinemaCpf"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="8dp"
+                    android:background="#09090B"
+                    android:hint="CPF do cliente (somente números, 11 dígitos)"
+                    android:inputType="number"
+                    android:maxLength="14"
+                    android:paddingHorizontal="12dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#71717A"
+                    android:textSize="13sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnLiberarCpfCinema"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="8dp"
+                    android:text="Liberar CPF até o fim do filme"
+                    android:textAllCaps="false"
+                    app:backgroundTint="#059669" />
+
+                <TextView
+                    android:id="@+id/txtCinemaCpfStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Conecte o site acima para listar filmes e liberar CPFs."
+                    android:textColor="#A1A1AA"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Procurar e Transmitir para Meu Aplicativo Nativo -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"

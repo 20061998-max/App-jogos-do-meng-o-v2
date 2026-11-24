@@ -122,9 +122,12 @@ interface DocumentPipApi {
   requestWindow: (options?: { width?: number; height?: number }) => Promise<Window>;
 }
 
+type MatchBroadcastMode = 'flamengo' | 'outro_jogo';
+
 interface RemoteLiveState {
   isLive: boolean;
   title: string;
+  matchMode?: MatchBroadcastMode;
   sourceApp: string;
   viewerCount: number;
 }
@@ -139,7 +142,9 @@ export function LiveBroadcastPanel({ getAdminToken, appName }: LiveBroadcastPane
   const [customSourceName, setCustomSourceName] = useState('');
   const [customPackageName, setCustomPackageName] = useState('');
   const [nativeSearchQuery, setNativeSearchQuery] = useState('');
+  const [matchMode, setMatchMode] = useState<MatchBroadcastMode>('flamengo');
   const [broadcastTitle, setBroadcastTitle] = useState(`Flamengo Ao Vivo · ${appName}`);
+  const [savingMeta, setSavingMeta] = useState(false);
   const [quality, setQuality] = useState<QualityPreset>('720p');
   const [captureAudio, setCaptureAudio] = useState(true);
   const [includeMicAudio, setIncludeMicAudio] = useState(true);
@@ -355,7 +360,14 @@ export function LiveBroadcastPanel({ getAdminToken, appName }: LiveBroadcastPane
       const params = new URLSearchParams();
       params.set('server', creds.serverUrl);
       params.set('token', creds.token);
-      params.set('title', broadcastTitle.trim() || `Flamengo Ao Vivo · ${appName}`);
+      params.set(
+        'title',
+        broadcastTitle.trim() ||
+          (matchMode === 'outro_jogo'
+            ? `Outro Jogo Ao Vivo · ${appName}`
+            : `Flamengo Ao Vivo · ${appName}`)
+      );
+      params.set('matchMode', matchMode);
       params.set('auto', options.autoStart ? '1' : '0');
       params.set('overlay', options.overlayMode !== false ? '1' : '0');
       params.set('direct', options.directScreen ? '1' : '0');
@@ -496,7 +508,12 @@ export function LiveBroadcastPanel({ getAdminToken, appName }: LiveBroadcastPane
           JSON.stringify({
             type: 'auth:broadcaster',
             idToken,
-            title: broadcastTitle.trim() || `Transmissão Ao Vivo · ${appName}`,
+            title:
+              broadcastTitle.trim() ||
+              (matchMode === 'outro_jogo'
+                ? `Outro Jogo Ao Vivo · ${appName}`
+                : `Flamengo Ao Vivo · ${appName}`),
+            matchMode,
             sourceApp: selectedSource,
             hasAudio: audioActive,
             sampleRate,
@@ -756,6 +773,81 @@ export function LiveBroadcastPanel({ getAdminToken, appName }: LiveBroadcastPane
     }).catch(() => undefined);
   }
 
+  async function applyLiveMetadata(nextMode: MatchBroadcastMode, nextTitle: string) {
+    const cleanTitle =
+      nextTitle.trim() ||
+      (nextMode === 'outro_jogo'
+        ? `Outro Jogo Ao Vivo · ${appName}`
+        : `Flamengo Ao Vivo · ${appName}`);
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'broadcast:meta',
+          title: cleanTitle,
+          matchMode: nextMode,
+        })
+      );
+    }
+
+    setSavingMeta(true);
+    setErrorMsg(null);
+    try {
+      const token = await getAdminToken();
+      if (!token) {
+        setErrorMsg('Sessão administrativa expirada.');
+        return;
+      }
+      const res = await fetch('/api/admin/live/meta', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: cleanTitle,
+          matchMode: nextMode,
+        }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { state?: RemoteLiveState };
+        if (data.state) setRemoteLiveState(data.state);
+        setStatusMsg(
+          `Transmissão atualizada para: ${
+            nextMode === 'outro_jogo' ? 'Outro Jogo' : 'Jogo do Flamengo'
+          } — "${cleanTitle}"`
+        );
+      } else {
+        setErrorMsg('Não foi possível atualizar o nome do jogo no servidor.');
+      }
+    } catch {
+      setErrorMsg('Falha de rede ao atualizar o nome do jogo.');
+    } finally {
+      setSavingMeta(false);
+    }
+  }
+
+  function handleSelectMatchMode(nextMode: MatchBroadcastMode) {
+    setMatchMode(nextMode);
+    let updatedTitle = broadcastTitle;
+    if (
+      nextMode === 'outro_jogo' &&
+      (broadcastTitle.trim() === '' || broadcastTitle.startsWith('Flamengo Ao Vivo'))
+    ) {
+      updatedTitle = 'Outro Jogo Ao Vivo · Futebol';
+      setBroadcastTitle(updatedTitle);
+    } else if (
+      nextMode === 'flamengo' &&
+      (broadcastTitle.trim() === '' || broadcastTitle.startsWith('Outro Jogo Ao Vivo'))
+    ) {
+      updatedTitle = `Flamengo Ao Vivo · ${appName}`;
+      setBroadcastTitle(updatedTitle);
+    }
+    if (effectiveLive) {
+      void applyLiveMetadata(nextMode, updatedTitle);
+    }
+  }
+
   function formatDuration(sec: number): string {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
@@ -965,60 +1057,105 @@ export function LiveBroadcastPanel({ getAdminToken, appName }: LiveBroadcastPane
           )}
         </div>
 
-        {/* Passo 2: Título, Qualidade e Botão Principal */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
-          <div className="md:col-span-5">
-            <label className="block text-xs font-medium text-zinc-300">
-              2. Título da transmissão no App
+        {/* Passo 2: Tipo de Jogo (Flamengo ou Outro Jogo), Nome e Botão Principal */}
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="text-xs font-semibold text-zinc-200">
+              2. Tipo de transmissão (quando o Flamengo não jogar, transmita outros jogos):
             </label>
-            <input
-              type="text"
-              maxLength={120}
-              disabled={isLive || connecting}
-              value={broadcastTitle}
-              onChange={(e) => setBroadcastTitle(e.target.value)}
-              placeholder="Ex: Flamengo x Palmeiras · Ao Vivo"
-              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white focus:border-[#C8102E] focus:outline-none disabled:opacity-60"
-            />
-          </div>
-
-          <div className="md:col-span-3">
-            <label className="block text-xs font-medium text-zinc-300">Qualidade da imagem</label>
-            <select
-              disabled={isLive || connecting}
-              value={quality}
-              onChange={(e) => setQuality(e.target.value as QualityPreset)}
-              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white focus:border-[#C8102E] focus:outline-none disabled:opacity-60"
-            >
-              <option value="720p">{QUALITY_CONFIG['720p'].label}</option>
-              <option value="1080p">{QUALITY_CONFIG['1080p'].label}</option>
-              <option value="480p">{QUALITY_CONFIG['480p'].label}</option>
-            </select>
-          </div>
-
-          <div className="md:col-span-4">
-            {!isLive ? (
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                disabled={connecting || searchingNative}
-                onClick={startLiveBroadcast}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#C8102E] px-4 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer"
+                onClick={() => handleSelectMatchMode('flamengo')}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                  matchMode === 'flamengo'
+                    ? 'border-[#C8102E] bg-[#C8102E] text-white'
+                    : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
+                }`}
               >
-                <Cast className="h-4 w-4" />
-                {connecting || searchingNative
-                  ? 'Ativando botão flutuante...'
-                  : 'INICIAR TRANSMISSÃO'}
+                Jogo do Flamengo
               </button>
-            ) : (
               <button
                 type="button"
-                onClick={() => cleanupBroadcastResources(true)}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-700 bg-red-950 px-4 py-2.5 text-sm font-semibold text-red-100 hover:bg-red-900 cursor-pointer"
+                onClick={() => handleSelectMatchMode('outro_jogo')}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                  matchMode === 'outro_jogo'
+                    ? 'border-amber-500 bg-amber-600 text-white'
+                    : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
+                }`}
               >
-                <Square className="h-4 w-4" />
-                Encerrar Transmissão
+                Outro Jogo (Outros Times)
               </button>
-            )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
+            <div className="md:col-span-5">
+              <label className="block text-xs font-medium text-zinc-300">
+                Nome do jogo / título exibido aos usuários (pode mudar ao vivo)
+              </label>
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="text"
+                  maxLength={120}
+                  value={broadcastTitle}
+                  onChange={(e) => setBroadcastTitle(e.target.value)}
+                  placeholder={
+                    matchMode === 'outro_jogo'
+                      ? 'Ex: Palmeiras x São Paulo · Brasileirão'
+                      : 'Ex: Flamengo x Palmeiras · Ao Vivo'
+                  }
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#C8102E] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={savingMeta}
+                  onClick={() => void applyLiveMetadata(matchMode, broadcastTitle)}
+                  className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 cursor-pointer"
+                >
+                  {savingMeta ? 'Salvando...' : effectiveLive ? 'Atualizar no Ar' : 'Salvar Nome'}
+                </button>
+              </div>
+            </div>
+
+            <div className="md:col-span-3">
+              <label className="block text-xs font-medium text-zinc-300">Qualidade da imagem</label>
+              <select
+                disabled={isLive || connecting}
+                value={quality}
+                onChange={(e) => setQuality(e.target.value as QualityPreset)}
+                className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#C8102E] focus:outline-none disabled:opacity-60"
+              >
+                <option value="720p">{QUALITY_CONFIG['720p'].label}</option>
+                <option value="1080p">{QUALITY_CONFIG['1080p'].label}</option>
+                <option value="480p">{QUALITY_CONFIG['480p'].label}</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-4">
+              {!isLive ? (
+                <button
+                  type="button"
+                  disabled={connecting || searchingNative}
+                  onClick={startLiveBroadcast}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#C8102E] px-4 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer"
+                >
+                  <Cast className="h-4 w-4" />
+                  {connecting || searchingNative
+                    ? 'Ativando botão flutuante...'
+                    : 'INICIAR TRANSMISSÃO'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => cleanupBroadcastResources(true)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-700 bg-red-950 px-4 py-2.5 text-sm font-semibold text-red-100 hover:bg-red-900 cursor-pointer"
+                >
+                  <Square className="h-4 w-4" />
+                  Encerrar Transmissão
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

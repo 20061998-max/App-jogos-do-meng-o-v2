@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -23,6 +24,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
 import com.telacast.mirror.BuildConfig
 import com.telacast.mirror.data.AppUpdateManager
 import com.telacast.mirror.data.OfflineLicenseManager
@@ -36,6 +38,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -56,6 +59,12 @@ class MainActivity : AppCompatActivity() {
         val fallbackUrl: String? = null
     )
 
+    private data class CinemaAdminMovie(
+        val id: String,
+        val title: String,
+        val ticketPrice: String
+    )
+
     private val priorityPackages = listOf(
         "com.flamengo.flatv",
         "com.globo.premierefc",
@@ -69,6 +78,8 @@ class MainActivity : AppCompatActivity() {
 
     private var allInstalledApps: List<NativeAppItem> = emptyList()
     private var displayedApps: List<NativeAppItem> = emptyList()
+    private var adminCinemaMovies: List<CinemaAdminMovie> = emptyList()
+    private var selectedMatchMode: String = "flamengo"
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var projectionManager: MediaProjectionManager
@@ -139,6 +150,10 @@ class MainActivity : AppCompatActivity() {
                         ScreenMirrorService.EXTRA_BROADCAST_TITLE,
                         prefs.getString(ScreenMirrorService.KEY_BROADCAST_TITLE, "Jogos do Mengão · Ao Vivo")
                     )
+                    putExtra(
+                        ScreenMirrorService.EXTRA_MATCH_MODE,
+                        prefs.getString(ScreenMirrorService.KEY_MATCH_MODE, selectedMatchMode)
+                    )
                     putExtra(ScreenMirrorService.EXTRA_SOURCE_APP, sourceLabel)
                 }
                 ContextCompat.startForegroundService(this, serviceIntent)
@@ -182,9 +197,11 @@ class MainActivity : AppCompatActivity() {
         solicitarPermissoesIniciais()
         carregarAppsNativosInstalados()
         atualizarEnderecoLocal()
+        carregarConfigTransmissaoSalva()
         atualizarStatusConexaoSite()
         configurarBotoes()
         processarDeepLink(intent)
+        carregarFilmesCinemaAdmin()
         AppUpdateManager.syncAndCheckForUpdates(this)
     }
 
@@ -217,6 +234,26 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnConectarSite.setOnClickListener {
             conectarSiteAoVivo()
+        }
+
+        binding.btnModoFlamengo.setOnClickListener {
+            selecionarModoJogo("flamengo")
+        }
+
+        binding.btnModoOutroJogo.setOnClickListener {
+            selecionarModoJogo("outro_jogo")
+        }
+
+        binding.btnAtualizarNomeJogo.setOnClickListener {
+            salvarEAtualizarNomeJogo()
+        }
+
+        binding.btnAtualizarFilmes.setOnClickListener {
+            carregarFilmesCinemaAdmin()
+        }
+
+        binding.btnLiberarCpfCinema.setOnClickListener {
+            liberarCpfCinemaAdmin()
         }
 
         binding.btnBuscarAppNativo.setOnClickListener {
@@ -279,6 +316,7 @@ class MainActivity : AppCompatActivity() {
             val viewerIntent = Intent(this, ViewerActivity::class.java).apply {
                 putExtra(EXTRA_AUTH_MODE, authMode)
                 putExtra(EXTRA_AUTH_TOKEN, authToken)
+                putExtra(ViewerActivity.EXTRA_IS_ADMIN, true)
             }
             startActivity(viewerIntent)
         }
@@ -291,6 +329,7 @@ class MainActivity : AppCompatActivity() {
         val serverUrl = data.getQueryParameter("server")?.trim().orEmpty()
         val adminToken = data.getQueryParameter("token")?.trim().orEmpty()
         val title = data.getQueryParameter("title")?.trim().orEmpty()
+        val matchModeParam = data.getQueryParameter("matchMode")?.trim().orEmpty()
         val query = data.getQueryParameter("query")?.trim().orEmpty()
         val pkg = data.getQueryParameter("pkg")?.trim().orEmpty()
         val autoStart = data.getQueryParameter("auto") == "1"
@@ -302,13 +341,18 @@ class MainActivity : AppCompatActivity() {
             if (serverUrl.isNotBlank()) putString(ScreenMirrorService.KEY_SERVER_URL, serverUrl)
             if (adminToken.isNotBlank()) putString(ScreenMirrorService.KEY_ADMIN_TOKEN, adminToken)
             if (title.isNotBlank()) putString(ScreenMirrorService.KEY_BROADCAST_TITLE, title)
+            if (matchModeParam == "flamengo" || matchModeParam == "outro_jogo") {
+                putString(ScreenMirrorService.KEY_MATCH_MODE, matchModeParam)
+            }
             if (pkg.isNotBlank()) putString(ScreenMirrorService.KEY_TARGET_PACKAGE, pkg)
             apply()
         }
+        carregarConfigTransmissaoSalva()
 
         if (adminToken.isNotBlank()) {
             authMode = "admin_handoff"
             binding.txtAssinante.text = "Admin conectado · Transmissão Ao Vivo"
+            carregarFilmesCinemaAdmin()
         }
         atualizarStatusConexaoSite()
 
@@ -671,15 +715,237 @@ class MainActivity : AppCompatActivity() {
                     binding.inputAdminPasscode.setText("")
                     binding.txtAssinante.text = "Admin conectado · Transmissão Ao Vivo"
                     atualizarStatusConexaoSite()
+                    carregarFilmesCinemaAdmin()
                     Toast.makeText(
                         this@MainActivity,
-                        "Site conectado! Aperte TRANSMITIR AGR para transmitir vídeo e áudio ao vivo.",
+                        "Site conectado! Aperte INICIAR TRANSMISSÃO ou gerencie Cinema e Jogos abaixo.",
                         Toast.LENGTH_LONG
                     ).show()
                 }.onFailure { err ->
                     binding.txtConexaoSiteStatus.text =
                         err.message ?: "Falha ao conectar no servidor."
                     binding.txtConexaoSiteStatus.setTextColor(Color.parseColor("#F87171"))
+                }
+            }
+        }
+    }
+
+    private fun obterCredenciaisAdmin(): Pair<String, String> {
+        val prefs = getSharedPreferences(ScreenMirrorService.PREFS_BROADCASTER, Context.MODE_PRIVATE)
+        val serverUrl = prefs.getString(ScreenMirrorService.KEY_SERVER_URL, null)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.trimEnd('/')
+            ?: BuildConfig.API_BASE_URL.trim().trimEnd('/')
+        val token = prefs.getString(ScreenMirrorService.KEY_ADMIN_TOKEN, null)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: authToken.trim()
+        return serverUrl to token
+    }
+
+    private fun carregarConfigTransmissaoSalva() {
+        val prefs = getSharedPreferences(ScreenMirrorService.PREFS_BROADCASTER, Context.MODE_PRIVATE)
+        selectedMatchMode = prefs.getString(ScreenMirrorService.KEY_MATCH_MODE, "flamengo") ?: "flamengo"
+        val savedTitle = prefs.getString(ScreenMirrorService.KEY_BROADCAST_TITLE, "Flamengo Ao Vivo · Jogos do Mengão")
+            ?: "Flamengo Ao Vivo · Jogos do Mengão"
+        binding.inputNomeJogo.setText(savedTitle)
+        atualizarBotoesModoJogo()
+    }
+
+    private fun atualizarBotoesModoJogo() {
+        val isFla = selectedMatchMode != "outro_jogo"
+        estilizarBotaoModo(binding.btnModoFlamengo, isFla, "#C8102E")
+        estilizarBotaoModo(binding.btnModoOutroJogo, !isFla, "#D97706")
+        binding.txtStatusNomeJogo.text = if (isFla) {
+            "Modo atual: Jogo do Flamengo"
+        } else {
+            "Modo atual: Outro Jogo (outros times)"
+        }
+    }
+
+    private fun estilizarBotaoModo(btn: MaterialButton, ativo: Boolean, activeHex: String) {
+        if (ativo) {
+            btn.backgroundTintList = ColorStateList.valueOf(Color.parseColor(activeHex))
+            btn.strokeColor = ColorStateList.valueOf(Color.parseColor(activeHex))
+            btn.setTextColor(Color.WHITE)
+        } else {
+            btn.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#09090B"))
+            btn.strokeColor = ColorStateList.valueOf(Color.parseColor("#3F3F46"))
+            btn.setTextColor(Color.parseColor("#E4E4E7"))
+        }
+    }
+
+    private fun selecionarModoJogo(mode: String) {
+        selectedMatchMode = if (mode == "outro_jogo") "outro_jogo" else "flamengo"
+        val currentTitle = binding.inputNomeJogo.text?.toString().orEmpty().trim()
+        if (selectedMatchMode == "outro_jogo" && (currentTitle.isBlank() || currentTitle.startsWith("Flamengo Ao Vivo"))) {
+            binding.inputNomeJogo.setText("Outro Jogo Ao Vivo · Futebol")
+        } else if (selectedMatchMode == "flamengo" && (currentTitle.isBlank() || currentTitle.startsWith("Outro Jogo Ao Vivo"))) {
+            binding.inputNomeJogo.setText("Flamengo Ao Vivo · Jogos do Mengão")
+        }
+        atualizarBotoesModoJogo()
+        salvarEAtualizarNomeJogo()
+    }
+
+    private fun salvarEAtualizarNomeJogo() {
+        val title = binding.inputNomeJogo.text?.toString().orEmpty().trim().ifBlank {
+            if (selectedMatchMode == "outro_jogo") "Outro Jogo Ao Vivo" else "Flamengo Ao Vivo · Jogos do Mengão"
+        }
+        val prefs = getSharedPreferences(ScreenMirrorService.PREFS_BROADCASTER, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(ScreenMirrorService.KEY_BROADCAST_TITLE, title)
+            .putString(ScreenMirrorService.KEY_MATCH_MODE, selectedMatchMode)
+            .apply()
+
+        val (serverUrl, token) = obterCredenciaisAdmin()
+        if (token.isBlank() || !serverUrl.startsWith("http")) {
+            binding.txtStatusNomeJogo.text = "Salvo no aparelho: $title (conecte o site para atualizar ao vivo)."
+            return
+        }
+
+        binding.btnAtualizarNomeJogo.isEnabled = false
+        lifecycleScope.launch(Dispatchers.IO) {
+            val outcome = runCatching {
+                val payload = JSONObject()
+                    .put("title", title)
+                    .put("matchMode", selectedMatchMode)
+                    .toString()
+                val req = Request.Builder()
+                    .url("$serverUrl/api/admin/live/meta")
+                    .addHeader("Authorization", "Bearer $token")
+                    .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+                }
+            }
+            withContext(Dispatchers.Main) {
+                binding.btnAtualizarNomeJogo.isEnabled = true
+                outcome.onSuccess {
+                    binding.txtStatusNomeJogo.text =
+                        "Atualizado no ar: ${if (selectedMatchMode == "outro_jogo") "Outro Jogo" else "Flamengo"} · $title"
+                    binding.txtStatusNomeJogo.setTextColor(Color.parseColor("#34D399"))
+                }.onFailure { err ->
+                    binding.txtStatusNomeJogo.text = "Salvo localmente; erro ao enviar ao site: ${err.message}"
+                    binding.txtStatusNomeJogo.setTextColor(Color.parseColor("#FBBF24"))
+                }
+            }
+        }
+    }
+
+    private fun carregarFilmesCinemaAdmin() {
+        val (serverUrl, token) = obterCredenciaisAdmin()
+        if (token.isBlank() || !serverUrl.startsWith("http")) {
+            binding.txtCinemaCpfStatus.text = "Conecte o site acima para carregar filmes e liberar CPFs."
+            return
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                val req = Request.Builder()
+                    .url("$serverUrl/api/admin/cinema")
+                    .addHeader("Authorization", "Bearer $token")
+                    .get()
+                    .build()
+                httpClient.newCall(req).execute().use { resp ->
+                    val bodyStr = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+                    val json = JSONObject(bodyStr)
+                    val arr = json.optJSONArray("sessions") ?: JSONArray()
+                    val list = mutableListOf<CinemaAdminMovie>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.optJSONObject(i) ?: continue
+                        val id = o.optString("id", "").trim()
+                        val title = o.optString("title", "").trim()
+                        val price = o.optString("ticketPrice", "R$ 10,00").trim()
+                        if (id.isNotBlank() && title.isNotBlank()) {
+                            list.add(CinemaAdminMovie(id = id, title = title, ticketPrice = price))
+                        }
+                    }
+                    list
+                }
+            }
+            withContext(Dispatchers.Main) {
+                result.onSuccess { list ->
+                    adminCinemaMovies = list
+                    val labels = if (list.isEmpty()) {
+                        listOf("Nenhum filme cadastrado ainda")
+                    } else {
+                        list.map { "${it.title} (${it.ticketPrice})" }
+                    }
+                    binding.spinnerCinemaFilmes.adapter = ArrayAdapter(
+                        this@MainActivity,
+                        android.R.layout.simple_spinner_dropdown_item,
+                        labels
+                    )
+                    binding.txtCinemaCpfStatus.text = if (list.isEmpty()) {
+                        "Cadastre filmes na aba Painel Admin do site para liberar ingressos aqui."
+                    } else {
+                        "${list.size} filme(s) carregado(s). Digite o CPF após confirmar o Pix."
+                    }
+                    binding.txtCinemaCpfStatus.setTextColor(Color.parseColor("#A1A1AA"))
+                }.onFailure { err ->
+                    binding.txtCinemaCpfStatus.text = "Não foi possível carregar filmes: ${err.message}"
+                    binding.txtCinemaCpfStatus.setTextColor(Color.parseColor("#F87171"))
+                }
+            }
+        }
+    }
+
+    private fun liberarCpfCinemaAdmin() {
+        val movie = adminCinemaMovies.getOrNull(binding.spinnerCinemaFilmes.selectedItemPosition)
+        if (movie == null) {
+            Toast.makeText(this, "Selecione um filme válido primeiro.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cpfDigits = binding.inputCinemaCpf.text?.toString().orEmpty().replace(Regex("\\D"), "")
+        if (cpfDigits.length != 11) {
+            Toast.makeText(this, "Informe um CPF válido com 11 dígitos.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val (serverUrl, token) = obterCredenciaisAdmin()
+        if (token.isBlank() || !serverUrl.startsWith("http")) {
+            Toast.makeText(this, "Conecte sua conta/senha admin no site primeiro.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        binding.btnLiberarCpfCinema.isEnabled = false
+        binding.btnLiberarCpfCinema.text = "Liberando CPF..."
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                val payload = JSONObject()
+                    .put("cpf", cpfDigits)
+                    .put("sessionId", movie.id)
+                    .toString()
+                val req = Request.Builder()
+                    .url("$serverUrl/api/admin/cinema/tickets")
+                    .addHeader("Authorization", "Bearer $token")
+                    .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+                httpClient.newCall(req).execute().use { resp ->
+                    val bodyStr = resp.body?.string().orEmpty()
+                    val json = runCatching { JSONObject(bodyStr) }.getOrNull()
+                    if (!resp.isSuccessful) {
+                        throw IllegalStateException(json?.optString("erro") ?: "Erro HTTP ${resp.code}")
+                    }
+                    val ticket = json?.optJSONObject("ticket")
+                    val masked = ticket?.optString("cpfMasked").orEmpty().ifBlank { cpfDigits }
+                    val title = ticket?.optString("movieTitle").orEmpty().ifBlank { movie.title }
+                    "CPF $masked liberado para \"$title\" até o filme acabar!"
+                }
+            }
+            withContext(Dispatchers.Main) {
+                binding.btnLiberarCpfCinema.isEnabled = true
+                binding.btnLiberarCpfCinema.text = "Liberar CPF até o fim do filme"
+                result.onSuccess { msg ->
+                    binding.inputCinemaCpf.setText("")
+                    binding.txtCinemaCpfStatus.text = msg
+                    binding.txtCinemaCpfStatus.setTextColor(Color.parseColor("#34D399"))
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                }.onFailure { err ->
+                    binding.txtCinemaCpfStatus.text = err.message ?: "Falha ao liberar CPF."
+                    binding.txtCinemaCpfStatus.setTextColor(Color.parseColor("#F87171"))
                 }
             }
         }

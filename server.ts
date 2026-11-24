@@ -13,6 +13,7 @@ import {
   broadcastAppUpdate,
   forceStopLiveBroadcast,
   getLiveBroadcastStatus,
+  updateLiveBroadcastMeta,
 } from './server/liveRelay.ts';
 import {
   createRateLimiter,
@@ -30,6 +31,7 @@ import {
   createDeveloperMessage,
   createPaymentRequest,
   createUserProfile,
+  deleteCinemaSession,
   deleteCustomPlan,
   deleteDeveloperMessageById,
   deletePaymentRequestById,
@@ -43,6 +45,9 @@ import {
   getPublicAppConfig,
   hasClaimedAdmin,
   hasClaimedAdminPasscode,
+  listCinemaSessions,
+  listCinemaSessionsPublic,
+  listCinemaTicketsAdmin,
   listDeveloperMessages,
   listPaymentRequests,
   listProfiles,
@@ -50,15 +55,20 @@ import {
   markPaymentRequestRenewed,
   purgeExpiredDeveloperMessages,
   recordPaymentLog,
+  releaseCinemaCpfTicket,
+  requestCinemaCpfTicket,
+  revokeCinemaCpfTicket,
   sanitizeProfile,
   ServerPlanRecord,
   setAdminWhatsapp,
   updateProfileById,
   updatePublicAppConfig,
+  upsertCinemaSession,
   upsertCustomPlan,
   upsertDeviceHeartbeat,
   UserProfileRecord,
   verifyClaimedAdminPasscode,
+  verifyCinemaAccessByCpf,
   verifyPassword,
 } from './server/store.ts';
 import {
@@ -88,6 +98,9 @@ const PUBLIC_CORS_PATHS = new Set([
   '/api/licenca/chave-publica',
   '/api/app/heartbeat',
   '/api/app/version',
+  '/api/cinema/schedule',
+  '/api/cinema/verify-cpf',
+  '/api/cinema/request-ticket',
   '/api/config/public',
   '/api/config/whatsapp',
   '/api/live/status',
@@ -530,6 +543,7 @@ async function startServer() {
     const ativo = isSubscriptionValid(req.authUser!);
     res.json({
       ativo,
+      role: safe.role,
       status_assinatura: safe.status_assinatura,
       plano: safe.plano,
       expira_em: safe.expira_em,
@@ -725,6 +739,8 @@ async function startServer() {
     res.json({
       ...cfg,
       customPlans: getCustomPlans(),
+      cinemaSchedule: listCinemaSessionsPublic(true),
+      serverNow: new Date().toISOString(),
       publishedSiteUrl: siteUrl,
       publishedApkUrl:
         cfg.publishedApkUrl === '/api/download-apk' && siteUrl
@@ -737,8 +753,198 @@ async function startServer() {
     });
   });
 
+  app.get('/api/cinema/schedule', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      serverNow: new Date().toISOString(),
+      sessions: listCinemaSessionsPublic(true),
+    });
+  });
+
+  app.post('/api/cinema/request-ticket', customerSubmitLimiter.middleware, (req, res) => {
+    const body = req.body as {
+      cpf?: string;
+      sessionId?: string;
+      customerName?: string;
+    };
+    try {
+      const ticket = requestCinemaCpfTicket({
+        cpf: body?.cpf || '',
+        sessionId: body?.sessionId || '',
+        customerName: body?.customerName,
+      });
+      res.status(201).json({
+        ok: true,
+        serverNow: new Date().toISOString(),
+        ticket: {
+          id: ticket.id,
+          cpfMasked: ticket.cpfMasked,
+          sessionId: ticket.sessionId,
+          movieTitle: ticket.movieTitle,
+          ticketPrice: ticket.ticketPrice,
+          status: ticket.status,
+          expiresAt: ticket.expiresAt,
+        },
+      });
+    } catch (err) {
+      res.status(400).json({ erro: err instanceof Error ? err.message : 'Dados inválidos.' });
+    }
+  });
+
+  app.post('/api/cinema/verify-cpf', customerSubmitLimiter.middleware, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const body = req.body as {
+      cpf?: string;
+      sessionId?: string;
+    };
+    try {
+      const result = verifyCinemaAccessByCpf(body?.cpf || '', body?.sessionId);
+      res.json({
+        serverNow: new Date().toISOString(),
+        cpfMasked: result.cpfMasked,
+        authorized: result.authorized,
+        tickets: result.tickets,
+        unlockedSessions: result.unlockedSessions,
+      });
+    } catch (err) {
+      res.status(400).json({ erro: err instanceof Error ? err.message : 'CPF inválido.' });
+    }
+  });
+
+  app.get('/api/admin/cinema', requireAdmin, (_req, res) => {
+    res.json({
+      serverNow: new Date().toISOString(),
+      sessions: listCinemaSessions(false),
+      tickets: listCinemaTicketsAdmin(),
+    });
+  });
+
+  app.put('/api/admin/cinema', requireAdmin, (req, res) => {
+    const body = req.body as {
+      id?: string;
+      title?: string;
+      videoUrl?: string;
+      posterUrl?: string;
+      synopsis?: string;
+      genre?: string;
+      ticketPrice?: string;
+      startTime?: string;
+      durationMinutes?: number;
+      active?: boolean;
+    };
+    try {
+      const sessions = upsertCinemaSession({
+        id: body?.id,
+        title: body?.title || '',
+        videoUrl: body?.videoUrl || '',
+        posterUrl: body?.posterUrl,
+        synopsis: body?.synopsis,
+        genre: body?.genre,
+        ticketPrice: body?.ticketPrice,
+        startTime: body?.startTime || '',
+        durationMinutes: body?.durationMinutes,
+        active: body?.active,
+      });
+      broadcastAppUpdate({
+        kind: 'config',
+        configVersion: getConfigVersion(),
+        buildId: resolveWebBuildId(),
+      });
+      res.json({
+        ok: true,
+        serverNow: new Date().toISOString(),
+        sessions,
+        tickets: listCinemaTicketsAdmin(),
+      });
+    } catch (err) {
+      res.status(400).json({ erro: err instanceof Error ? err.message : 'Erro ao salvar filme.' });
+    }
+  });
+
+  app.delete('/api/admin/cinema/:id', requireAdmin, (req, res) => {
+    const sessions = deleteCinemaSession(String(req.params.id));
+    broadcastAppUpdate({
+      kind: 'config',
+      configVersion: getConfigVersion(),
+      buildId: resolveWebBuildId(),
+    });
+    res.json({
+      ok: true,
+      serverNow: new Date().toISOString(),
+      sessions,
+      tickets: listCinemaTicketsAdmin(),
+    });
+  });
+
+  app.get('/api/admin/cinema/tickets', requireAdmin, (_req, res) => {
+    res.json({
+      serverNow: new Date().toISOString(),
+      tickets: listCinemaTicketsAdmin(),
+    });
+  });
+
+  app.post('/api/admin/cinema/tickets', requireAdmin, (req, res) => {
+    const body = req.body as {
+      cpf?: string;
+      sessionId?: string;
+      customerName?: string;
+    };
+    try {
+      const ticket = releaseCinemaCpfTicket({
+        cpf: body?.cpf || '',
+        sessionId: body?.sessionId || '',
+        customerName: body?.customerName,
+      });
+      broadcastAppUpdate({
+        kind: 'config',
+        configVersion: getConfigVersion(),
+        buildId: resolveWebBuildId(),
+      });
+      res.status(201).json({
+        ok: true,
+        serverNow: new Date().toISOString(),
+        ticket,
+        tickets: listCinemaTicketsAdmin(),
+      });
+    } catch (err) {
+      res.status(400).json({ erro: err instanceof Error ? err.message : 'Erro ao liberar CPF.' });
+    }
+  });
+
+  app.delete('/api/admin/cinema/tickets/:id', requireAdmin, (req, res) => {
+    const removed = revokeCinemaCpfTicket(String(req.params.id));
+    if (!removed) {
+      res.status(404).json({ erro: 'Ingresso não encontrado.' });
+      return;
+    }
+    broadcastAppUpdate({
+      kind: 'config',
+      configVersion: getConfigVersion(),
+      buildId: resolveWebBuildId(),
+    });
+    res.json({
+      ok: true,
+      serverNow: new Date().toISOString(),
+      tickets: listCinemaTicketsAdmin(),
+    });
+  });
+
   app.get('/api/live/status', (_req, res) => {
     res.json(getLiveBroadcastStatus());
+  });
+
+  app.post('/api/admin/live/meta', requireAdmin, (req, res) => {
+    const body = req.body as {
+      title?: string;
+      matchMode?: string;
+      sourceApp?: string;
+    };
+    const nextState = updateLiveBroadcastMeta({
+      title: body?.title,
+      matchMode: body?.matchMode,
+      sourceApp: body?.sourceApp,
+    });
+    res.json({ ok: true, state: nextState });
   });
 
   app.patch('/api/admin/config-whatsapp', requireAdmin, (req, res) => {

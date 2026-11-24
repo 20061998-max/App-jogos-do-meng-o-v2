@@ -24,9 +24,51 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="Ative pelo código do aparelho (sem internet) ou entre com sua conta"
+            android:text="Ative pelo código do aparelho (sem internet), entre no Cinema só com CPF ou faça login"
             android:textColor="#475569"
             android:textSize="14sp" />
+
+        <!-- Bloco 0: Cinema por CPF (Sem Cadastro) -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#0F172A"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Cinema com Ingresso Pix (Sem Cadastro)"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Veja os filmes em cartaz, pague o Pix e entre usando apenas o seu CPF até o filme acabar."
+                    android:textColor="#CBD5E1"
+                    android:textSize="12sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCinemaCpf"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="10dp"
+                    android:backgroundTint="#C8102E"
+                    android:focusable="true"
+                    android:text="Cinema · Entrar só com CPF"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
         <!-- Bloco 1: Ativação Offline pelo Código do Celular / TV -->
         <com.google.android.material.card.MaterialCardView

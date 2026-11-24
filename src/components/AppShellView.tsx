@@ -3,7 +3,9 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import {
   Check,
   CheckCircle2,
+  Clapperboard,
   Copy,
+  Expand,
   ExternalLink,
   KeyRound,
   Lock,
@@ -11,11 +13,9 @@ import {
   Maximize2,
   MessageCircle,
   Minimize2,
-  Monitor,
   Play,
   QrCode,
   Radio,
-  ShieldCheck,
   Square,
   Tv,
   UserCheck,
@@ -47,6 +47,8 @@ import {
 import { AppSettingsDoc, PlanItem, sanitizePixQrCodeUrl } from '../lib/storeCatalog';
 import { formatDatePtBr } from '../types';
 import { AdminPasscodeForm } from './AdminPasscodeForm';
+import { CinemaAdminSection, CinemaSessionItem } from './CinemaAdminSection';
+import { CinemaClientView } from './CinemaClientView';
 import { DeveloperMessageBox } from './DeveloperMessageBox';
 import { DistributionCard } from './DistributionCard';
 import { LiveBroadcastPanel } from './LiveBroadcastPanel';
@@ -59,9 +61,13 @@ interface AppShellViewProps {
   plans: PlanItem[];
 }
 
+type ScreenSizeMode = 'small' | 'medium' | 'large';
+type ScreenFitMode = 'contain' | 'cover';
+
 interface LiveStatusSnapshot {
   isLive: boolean;
   title: string;
+  matchMode?: 'flamengo' | 'outro_jogo';
   sourceApp: string;
   hasAudio: boolean;
   sampleRate: number;
@@ -74,19 +80,46 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
   const isTvDevice = isSmartTv || isAndroidTV || isWebOS;
   const activePlans = plans.filter((p) => p.active);
 
-  const [appTab, setAppTab] = useState<'player' | 'conta' | 'admin'>('player');
+  const [appTab, setAppTab] = useState<'player' | 'cinema' | 'conta' | 'admin'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('admin') === '1') return 'admin';
+      if (params.get('tab') === 'cinema') return 'cinema';
+    }
+    return 'player';
+  });
   const [sourceMode, setSourceMode] = useState<'live_server' | 'lan_wifi'>('live_server');
+  const [showTvLanDrawer, setShowTvLanDrawer] = useState(false);
   const [hostAddress, setHostAddress] = useState('http://192.168.1.50:8080');
   const [streamToken, setStreamToken] = useState('');
   const [streamMode, setStreamMode] = useState<'idle' | 'live' | 'error'>('idle');
   const [streamError, setStreamError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [screenFitMode, setScreenFitMode] = useState<'auto' | 'fill' | 'original'>('auto');
+  const [screenSizeMode, setScreenSizeMode] = useState<ScreenSizeMode>(() => {
+    try {
+      const saved = localStorage.getItem('mengao_player_screen_size');
+      if (saved === 'small' || saved === 'medium' || saved === 'large') return saved;
+    } catch {
+      // ignore
+    }
+    return 'large';
+  });
+  const [screenFitMode, setScreenFitMode] = useState<ScreenFitMode>(() => {
+    try {
+      const saved = localStorage.getItem('mengao_player_screen_fit');
+      if (saved === 'contain' || saved === 'cover') return saved;
+    } catch {
+      // ignore
+    }
+    return 'contain';
+  });
+  const [controlsVisible, setControlsVisible] = useState(true);
   const [audioMuted, setAudioMuted] = useState(false);
   const [audioSuspended, setAudioSuspended] = useState(false);
   const [userStoppedLive, setUserStoppedLive] = useState(false);
 
   const [liveStatus, setLiveStatus] = useState<LiveStatusSnapshot | null>(null);
+  const [cinemaSessions, setCinemaSessions] = useState<CinemaSessionItem[]>([]);
 
   // Admin auth state inside App (Google OR Senha Admin)
   const [googleUser, setGoogleUser] = useState<User | null>(null);
@@ -125,6 +158,7 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
   const [copiedPix, setCopiedPix] = useState(false);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const hideControlsTimerRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const wsViewerRef = useRef<WebSocket | null>(null);
@@ -137,6 +171,36 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
   const lastAutoStartedAtRef = useRef<string | null>(null);
   const streamModeRef = useRef<'idle' | 'live' | 'error'>('idle');
   streamModeRef.current = streamMode;
+
+  function updateScreenSize(mode: ScreenSizeMode) {
+    setScreenSizeMode(mode);
+    try {
+      localStorage.setItem('mengao_player_screen_size', mode);
+    } catch {
+      // ignore
+    }
+    pingPlayerControls();
+  }
+
+  function updateScreenFit(fit: ScreenFitMode) {
+    setScreenFitMode(fit);
+    try {
+      localStorage.setItem('mengao_player_screen_fit', fit);
+    } catch {
+      // ignore
+    }
+    pingPlayerControls();
+  }
+
+  function pingPlayerControls(forceShow = true) {
+    if (forceShow) setControlsVisible(true);
+    if (hideControlsTimerRef.current) {
+      window.clearTimeout(hideControlsTimerRef.current);
+    }
+    hideControlsTimerRef.current = window.setTimeout(() => {
+      setControlsVisible(false);
+    }, 3600);
+  }
 
   useEffect(() => {
     void getSavedCustomerPreRegistration().then((saved) => {
@@ -167,9 +231,30 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
         })
         .catch(() => undefined);
     };
+    const loadCinemaSchedule = () => {
+      fetch('/api/cinema/schedule', { cache: 'no-store' })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { sessions?: CinemaSessionItem[] } | null) => {
+          if (data && Array.isArray(data.sessions)) {
+            setCinemaSessions(data.sessions);
+          }
+        })
+        .catch(() => undefined);
+    };
+
     loadLiveStatus();
-    const id = window.setInterval(loadLiveStatus, 2500);
-    return () => window.clearInterval(id);
+    loadCinemaSchedule();
+    const liveId = window.setInterval(loadLiveStatus, 2500);
+    const cinemaPollId = window.setInterval(loadCinemaSchedule, 25000);
+    window.addEventListener('mengao-catalog-refresh', loadCinemaSchedule);
+    return () => {
+      window.clearInterval(liveId);
+      window.clearInterval(cinemaPollId);
+      window.removeEventListener('mengao-catalog-refresh', loadCinemaSchedule);
+      if (hideControlsTimerRef.current) {
+        window.clearTimeout(hideControlsTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -352,9 +437,10 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
     }
   }
 
-  async function toggleFullscreenGameMode() {
+  async function toggleFullscreenGameMode(targetEl?: HTMLElement | null) {
+    const el = targetEl || stageRef.current;
     if (!document.fullscreenElement) {
-      await stageRef.current?.requestFullscreen?.();
+      await el?.requestFullscreen?.();
       try {
         const orientation = screen.orientation as unknown as {
           lock?: (mode: string) => Promise<void>;
@@ -365,7 +451,14 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
       }
     } else {
       await document.exitFullscreen?.();
+      try {
+        const orientation = screen.orientation as unknown as { unlock?: () => void };
+        orientation?.unlock?.();
+      } catch {
+        // ignore
+      }
     }
+    pingPlayerControls();
   }
 
   function disconnectStream() {
@@ -656,61 +749,85 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
     }
   }
 
+  const hasCinemaInCartaz = cinemaSessions.length > 0;
+
+  const stageSizeClasses = isFullscreen
+    ? 'h-[100dvh] w-screen rounded-none border-0'
+    : screenSizeMode === 'small'
+      ? 'mx-auto w-full max-w-md h-[29dvh] min-h-[195px] rounded-2xl border border-zinc-800'
+      : screenSizeMode === 'medium'
+        ? 'mx-auto w-full max-w-4xl h-[46dvh] min-h-[260px] sm:h-[58dvh] rounded-2xl border border-zinc-800'
+        : 'w-full h-[68dvh] min-h-[340px] sm:h-[78dvh] rounded-xl border border-zinc-800/80';
+
   return (
     <div
-      className="min-h-screen flex flex-col bg-zinc-950 text-zinc-100 select-none"
+      className="min-h-[100dvh] flex flex-col bg-[#050507] text-zinc-100 select-none"
       onContextMenu={(e) => e.preventDefault()}
     >
       <TvAutoInstallBanner onOpenAppMode={openTvAppMode} />
-      <header className="border-b border-zinc-800 bg-zinc-900">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 py-3">
+      <header className="sticky top-0 z-30 border-b border-zinc-900 bg-[#050507]/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 sm:gap-8 px-4 sm:px-6 h-14">
           <div className="flex items-center gap-2.5 shrink-0">
             <MengaoShield className="h-7 w-7 shrink-0" />
             <span className="font-display text-lg font-bold tracking-tight text-white whitespace-nowrap">
-              {settings.appName} App
+              {settings.appName}
             </span>
           </div>
 
-          <nav className="flex items-center gap-5 overflow-x-auto text-xs font-semibold">
+          <nav className="flex items-center gap-5 overflow-x-auto text-sm font-medium">
             <button
               type="button"
               onClick={() => setAppTab('player')}
-              className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+              className={`py-1.5 border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 appTab === 'player'
-                  ? 'border-[#C8102E] text-white'
+                  ? 'border-[#C8102E] text-white font-semibold'
                   : 'border-transparent text-zinc-400 hover:text-white'
               }`}
             >
-              Assistir jogos
+              Ao Vivo
+            </button>
+            <button
+              type="button"
+              onClick={() => setAppTab('cinema')}
+              className={`py-1.5 border-b-2 transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer ${
+                appTab === 'cinema'
+                  ? 'border-[#C8102E] text-white font-semibold'
+                  : 'border-transparent text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Clapperboard className="h-3.5 w-3.5" />
+              Cinema
             </button>
             <button
               type="button"
               onClick={() => setAppTab('conta')}
-              className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+              className={`py-1.5 border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 appTab === 'conta'
-                  ? 'border-[#C8102E] text-white'
+                  ? 'border-[#C8102E] text-white font-semibold'
                   : 'border-transparent text-zinc-400 hover:text-white'
               }`}
             >
-              Planos e Chave
+              {isAppUnlocked ? 'Minha Conta' : 'Ativar Acesso'}
             </button>
-            <button
-              type="button"
-              onClick={() => setAppTab('admin')}
-              className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
-                appTab === 'admin'
-                  ? 'border-[#C8102E] text-white'
-                  : 'border-transparent text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Radio className="h-3.5 w-3.5 text-[#C8102E]" />
-              Transmitir (Admin)
-            </button>
+            {isAuthorizedAdmin && (
+              <button
+                type="button"
+                onClick={() => setAppTab('admin')}
+                className={`py-1.5 border-b-2 transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer ${
+                  appTab === 'admin'
+                    ? 'border-[#C8102E] text-white font-semibold'
+                    : 'border-transparent text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Radio className="h-3.5 w-3.5 text-[#C8102E]" />
+                Admin
+              </button>
+            )}
           </nav>
 
           <div className="flex items-center gap-3 shrink-0">
             {offlineLicense?.ativo && (
-              <span className="hidden sm:inline font-mono text-xs text-emerald-400 tabular-nums">
+              <span className="hidden sm:inline font-mono text-xs text-zinc-400 tabular-nums">
                 {offlineLicense.dias_restantes}d restantes
               </span>
             )}
@@ -794,6 +911,7 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
                 )}
 
                 <LiveBroadcastPanel getAdminToken={getAdminToken} appName={settings.appName} />
+                <CinemaAdminSection getAdminToken={getAdminToken} />
                 <DistributionCard
                   appName={settings.appName}
                   adminToken={adminIdToken || passcodeToken}
@@ -802,7 +920,25 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
             )}
           </div>
         ) : appTab === 'conta' ? (
-          <SubscriberView settings={settings} plans={plans} />
+          <div className="space-y-6">
+            <SubscriberView settings={settings} plans={plans} />
+            <div className="mx-auto max-w-5xl px-6 pb-8 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setAppTab('admin')}
+                className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer"
+              >
+                <Lock className="h-3 w-3" />
+                Acesso Administrativo
+              </button>
+            </div>
+          </div>
+        ) : appTab === 'cinema' ? (
+          <CinemaClientView
+            settings={settings}
+            isAdmin={isAuthorizedAdmin}
+            getAdminToken={getAdminToken}
+          />
         ) : !isAppUnlocked ? (
           <div className="mx-auto max-w-lg px-6 py-10 space-y-6">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-7 space-y-5">
@@ -1039,166 +1175,251 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
             <DeveloperMessageBox compact />
           </div>
         ) : (
-          <div className="mx-auto max-w-6xl px-5 py-6 space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-400">
-              <span>
-                {isAuthorizedAdmin && !offlineLicense?.ativo
-                  ? 'Modo Administrador Autorizado'
-                  : `Licença ativa (${offlineLicense?.plano}) · Válida até ${formatDatePtBr(
-                      offlineLicense?.expira_em || null
-                    )}`}
-              </span>
-              <span className="flex items-center gap-2 font-mono">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                {isTvDevice ? 'Smart TV Autorizada' : 'Proteção Anti-Retransmissão Ativa'} ·{' '}
-                {offlineLicense?.deviceCode || 'ADMIN'}
-              </span>
-            </div>
-
-            {sourceMode === 'lan_wifi' && retransmissionBlockedForNonTv && (
-              <div className="rounded-xl border border-amber-700/60 bg-amber-950/40 p-4 flex items-start gap-3 text-xs text-amber-200">
-                <Lock className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
-                <div>
-                  <p className="font-semibold text-white">
-                    Proteção Anti-Retransmissão: Somente para Smart TVs
-                  </p>
-                  <p className="mt-1 leading-relaxed text-amber-200/90">
-                    A retransmissão entre dispositivos está bloqueada neste celular/PC. Para
-                    retransmitir ou receber o jogo espelhado na rede, abra o aplicativo Jogos do
-                    Mengão diretamente em uma Smart TV (Android TV ou LG webOS).
-                  </p>
-                </div>
-              </div>
+          <div className="mx-auto max-w-7xl px-2 py-3 sm:px-5 sm:py-5 space-y-4">
+            {streamError && (
+              <p className="rounded-lg border border-red-900/60 bg-red-950/60 px-4 py-2.5 text-xs text-red-300">
+                {streamError}
+              </p>
             )}
 
-            {/* Seletor de Fonte na Área de Transmissão */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      disconnectStream();
-                      setSourceMode('live_server');
-                    }}
-                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      sourceMode === 'live_server'
-                        ? 'bg-[#C8102E] text-white'
-                        : 'border border-zinc-700 bg-zinc-950 text-zinc-300 hover:bg-zinc-800'
-                    }`}
-                  >
-                    <Radio className="h-3.5 w-3.5" />
-                    Transmissão Ao Vivo (App Admin)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      disconnectStream();
-                      setSourceMode('lan_wifi');
-                    }}
-                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      sourceMode === 'lan_wifi'
-                        ? 'bg-[#C8102E] text-white'
-                        : 'border border-zinc-700 bg-zinc-950 text-zinc-300 hover:bg-zinc-800'
-                    }`}
-                  >
-                    <Wifi className="h-3.5 w-3.5" />
-                    Espelhamento Wi-Fi Local (IP)
-                  </button>
-                </div>
-
-                {liveStatus?.isLive && (
-                  <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-950/70 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
-                    <Radio className="h-3 w-3 animate-pulse" />
-                    AO VIVO: {liveStatus.sourceApp} ({liveStatus.viewerCount} assistindo)
-                  </span>
-                )}
-              </div>
-
-              {sourceMode === 'live_server' ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3">
-                  <div className="text-xs">
-                    <p className="font-semibold text-white">
-                      {liveStatus?.isLive
-                        ? `${liveStatus.title} · Fonte: ${liveStatus.sourceApp}`
-                        : 'Aguardando o administrador iniciar a transmissão ao vivo'}
-                    </p>
-                    <p className="text-zinc-400">
-                      Recebe vídeo e áudio direto do app nativo escolhido no Painel Admin.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
+            {/* Player limpo estilo Netflix com escolha de tamanho de tela pelo cliente */}
+            <div
+              ref={stageRef}
+              onMouseMove={() => pingPlayerControls()}
+              onClick={() => pingPlayerControls()}
+              className={`relative flex items-center justify-center overflow-hidden bg-black ${stageSizeClasses}`}
+            >
+              {streamMode === 'live' ? (
+                <>
+                  <canvas
+                    ref={canvasRef}
+                    className={
+                      screenFitMode === 'cover'
+                        ? 'h-full w-full object-cover'
+                        : 'h-full w-full object-contain'
+                    }
+                  />
+                  {sourceMode === 'live_server' && audioSuspended && (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (streamMode === 'live') {
-                          setUserStoppedLive(true);
-                          disconnectStream();
-                        } else {
-                          void connectToLiveServerStream();
-                        }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void unlockAndToggleMute(true);
                       }}
-                      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
-                        streamMode === 'live'
-                          ? 'bg-zinc-700 text-white hover:bg-zinc-600'
-                          : 'bg-[#C8102E] text-white hover:bg-red-700'
-                      }`}
+                      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 inline-flex items-center gap-2 rounded-full bg-[#C8102E] px-5 py-2.5 text-xs font-bold text-white shadow-xl hover:bg-red-700 cursor-pointer"
                     >
-                      {streamMode === 'live' ? (
-                        <>
-                          <Square className="h-3.5 w-3.5" />
-                          Parar
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-3.5 w-3.5" />
-                          Conectar ao Vivo
-                        </>
-                      )}
+                      <Volume2 className="h-4 w-4" />
+                      Tocar para ativar o áudio
                     </button>
-                    {streamMode === 'live' && (
+                  )}
+
+                  {/* Controles flutuantes auto-ocultáveis (somente player do cliente) */}
+                  <div
+                    className={`absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-t from-black/95 via-black/65 to-transparent px-4 pb-3 pt-10 transition-opacity duration-200 ${
+                      controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
                       <button
                         type="button"
-                        onClick={() => void unlockAndToggleMute(false)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 whitespace-nowrap cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setUserStoppedLive(true);
+                          disconnectStream();
+                        }}
+                        className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-white/15 px-3 text-xs font-semibold text-white hover:bg-white/25 cursor-pointer"
                       >
-                        {audioMuted || audioSuspended ? (
+                        <Square className="h-3.5 w-3.5" />
+                        Parar
+                      </button>
+                      {sourceMode === 'live_server' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void unlockAndToggleMute(false);
+                          }}
+                          className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-white/15 px-3 text-xs font-semibold text-white hover:bg-white/25 cursor-pointer"
+                        >
+                          {audioMuted || audioSuspended ? (
+                            <>
+                              <VolumeX className="h-4 w-4 text-red-400" />
+                              <span className="hidden sm:inline">
+                                {audioSuspended ? 'Ativar áudio' : 'Sem som'}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="h-4 w-4" />
+                              <span className="hidden sm:inline">Som</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                      {liveStatus?.isLive && (
+                        <span className="truncate text-xs font-semibold text-white/90 pl-1">
+                          {liveStatus.matchMode === 'outro_jogo' ? 'Outro Jogo · ' : ''}
+                          {liveStatus.title}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {(['small', 'medium', 'large'] as const).map((sz) => (
+                        <button
+                          key={sz}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateScreenSize(sz);
+                          }}
+                          className={`h-9 rounded-lg px-2.5 text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                            screenSizeMode === sz && !isFullscreen
+                              ? 'bg-[#C8102E] text-white'
+                              : 'bg-white/10 text-zinc-200 hover:bg-white/20'
+                          }`}
+                        >
+                          {sz === 'small' ? 'Pequena' : sz === 'medium' ? 'Média' : 'Grande'}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          updateScreenFit(screenFitMode === 'cover' ? 'contain' : 'cover');
+                        }}
+                        className={`inline-flex h-9 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold whitespace-nowrap cursor-pointer ${
+                          screenFitMode === 'cover'
+                            ? 'bg-white text-black'
+                            : 'bg-white/10 text-zinc-200 hover:bg-white/20'
+                        }`}
+                      >
+                        <Expand className="h-3.5 w-3.5" />
+                        {screenFitMode === 'cover' ? 'Ajustar' : 'Preencher'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void toggleFullscreenGameMode(stageRef.current);
+                        }}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-white/15 px-3 text-xs font-semibold text-white hover:bg-white/25 whitespace-nowrap cursor-pointer"
+                      >
+                        {isFullscreen ? (
                           <>
-                            <VolumeX className="h-3.5 w-3.5 text-red-400" />
-                            {audioSuspended ? 'Ativar Áudio' : 'Sem som'}
+                            <Minimize2 className="h-3.5 w-3.5" />
+                            Sair
                           </>
                         ) : (
                           <>
-                            <Volume2 className="h-3.5 w-3.5 text-emerald-400" />
-                            Áudio ON
+                            <Maximize2 className="h-3.5 w-3.5" />
+                            Tela cheia
                           </>
                         )}
                       </button>
-                    )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="p-6 sm:p-10 text-center space-y-4 max-w-lg">
+                  <Tv className="mx-auto h-11 w-11 text-[#C8102E]" />
+                  <h2 className="font-display text-2xl font-bold text-white">
+                    {liveStatus?.isLive ? liveStatus.title : settings.appName}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-zinc-400">
+                    {liveStatus?.isLive
+                      ? 'Transmissão ao vivo disponível agora.'
+                      : 'Quando a transmissão começar, o vídeo inicia automaticamente na sua tela.'}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
                     <button
                       type="button"
-                      onClick={toggleFullscreenGameMode}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 whitespace-nowrap cursor-pointer"
+                      onClick={() => void connectToLiveServerStream()}
+                      className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#C8102E] px-5 text-xs font-semibold text-white hover:bg-red-700 cursor-pointer"
                     >
-                      {isFullscreen ? (
-                        <>
-                          <Minimize2 className="h-3.5 w-3.5" />
-                          Sair
-                        </>
-                      ) : (
-                        <>
-                          <Maximize2 className="h-3.5 w-3.5" />
-                          Tela cheia
-                        </>
-                      )}
+                      <Play className="h-4 w-4" />
+                      {liveStatus?.isLive ? 'Assistir Ao Vivo' : 'Conectar Ao Vivo'}
                     </button>
+                    {hasCinemaInCartaz && (
+                      <button
+                        type="button"
+                        onClick={() => setAppTab('cinema')}
+                        className="inline-flex h-11 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 text-xs font-semibold text-white hover:bg-zinc-800 cursor-pointer"
+                      >
+                        <Clapperboard className="h-4 w-4 text-[#C8102E]" />
+                        Ver Cinema (CPF)
+                      </button>
+                    )}
                   </div>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-3 border-t border-zinc-800 pt-3 md:grid-cols-12 md:items-end">
+              )}
+            </div>
+
+            {/* Barra simples de tamanho de tela e acesso TV sem poluição visual */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-zinc-400 mr-1">Tamanho da tela:</span>
+                {(['small', 'medium', 'large'] as const).map((sz) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => updateScreenSize(sz)}
+                    className={`h-9 rounded-lg px-3 text-xs font-semibold transition-colors cursor-pointer ${
+                      screenSizeMode === sz && !isFullscreen
+                        ? 'bg-[#C8102E] text-white'
+                        : 'border border-zinc-800 bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  >
+                    {sz === 'small' ? 'Pequena' : sz === 'medium' ? 'Média' : 'Grande'}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => updateScreenFit(screenFitMode === 'cover' ? 'contain' : 'cover')}
+                  className={`h-9 rounded-lg px-3 text-xs font-semibold transition-colors cursor-pointer ${
+                    screenFitMode === 'cover'
+                      ? 'bg-zinc-100 text-zinc-950'
+                      : 'border border-zinc-800 bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                >
+                  {screenFitMode === 'cover' ? 'Modo Preencher' : 'Preencher Tela'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void toggleFullscreenGameMode(stageRef.current)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  Tela Cheia
+                </button>
+              </div>
+
+              {(isTvDevice || isAuthorizedAdmin) && (
+                <button
+                  type="button"
+                  onClick={() => setShowTvLanDrawer((prev) => !prev)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                >
+                  <Wifi className="h-3.5 w-3.5" />
+                  Wi-Fi Local (TV)
+                </button>
+              )}
+            </div>
+
+            {showTvLanDrawer && (isTvDevice || isAuthorizedAdmin) && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+                {sourceMode === 'lan_wifi' && retransmissionBlockedForNonTv && (
+                  <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 p-3 flex items-start gap-2.5 text-xs text-amber-200">
+                    <Lock className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+                    <span>
+                      Retransmissão Wi-Fi local liberada somente para Smart TVs (Android TV ou LG webOS).
+                    </span>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
                   <div className="md:col-span-5">
                     <label className="block text-xs font-medium text-zinc-400">
-                      IP do transmissor
+                      IP local da TV
                     </label>
                     <input
                       type="url"
@@ -1207,11 +1428,8 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
                       className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-white focus:border-[#C8102E] focus:outline-none"
                     />
                   </div>
-
                   <div className="md:col-span-3">
-                    <label className="block text-xs font-medium text-zinc-400">
-                      Token da sessão
-                    </label>
+                    <label className="block text-xs font-medium text-zinc-400">Token</label>
                     <input
                       type="text"
                       value={streamToken}
@@ -1220,153 +1438,26 @@ export function AppShellView({ settings, plans }: AppShellViewProps) {
                       className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-white focus:border-[#C8102E] focus:outline-none"
                     />
                   </div>
-
                   <div className="md:col-span-4 flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={streamMode === 'live' ? disconnectStream : connectToHostStream}
-                      className={`flex-1 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
-                        streamMode === 'live'
-                          ? 'bg-zinc-700 text-white hover:bg-zinc-600'
-                          : 'bg-[#C8102E] text-white hover:bg-red-700'
-                      }`}
+                      onClick={() => {
+                        setSourceMode('lan_wifi');
+                        if (streamMode === 'live') {
+                          disconnectStream();
+                        } else {
+                          void connectToHostStream();
+                        }
+                      }}
+                      className="flex-1 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-[#C8102E] px-4 text-xs font-semibold text-white hover:bg-red-700 cursor-pointer"
                     >
-                      {streamMode === 'live' ? (
-                        <>
-                          <Square className="h-3.5 w-3.5" />
-                          Parar
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-3.5 w-3.5" />
-                          Assistir jogo na TV
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={toggleFullscreenGameMode}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 whitespace-nowrap"
-                    >
-                      {isFullscreen ? (
-                        <>
-                          <Minimize2 className="h-3.5 w-3.5" />
-                          Sair
-                        </>
-                      ) : (
-                        <>
-                          <Maximize2 className="h-3.5 w-3.5" />
-                          Tela cheia
-                        </>
-                      )}
+                      <Play className="h-3.5 w-3.5" />
+                      Conectar na TV
                     </button>
                   </div>
-                </div>
-              )}
-
-              {/* Controle de Ajuste Automático de Tela para qualquer dispositivo */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800 pt-3 text-xs">
-                <span className="inline-flex items-center gap-1.5 text-zinc-400">
-                  <Monitor className="h-3.5 w-3.5 text-[#C8102E]" />
-                  <span>Ajuste de tela automático ({isTvDevice ? 'Smart TV' : 'Celular / PC'}):</span>
-                </span>
-                <div className="flex items-center gap-1.5">
-                  {(
-                    [
-                      { id: 'auto', label: 'Auto-Ajuste' },
-                      { id: 'fill', label: 'Preencher Tela' },
-                      { id: 'original', label: 'Original' },
-                    ] as const
-                  ).map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setScreenFitMode(opt.id)}
-                      className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
-                        screenFitMode === opt.id
-                          ? 'bg-[#C8102E] text-white'
-                          : 'border border-zinc-700 bg-zinc-950 text-zinc-300 hover:bg-zinc-800'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
                 </div>
               </div>
-            </div>
-
-            {streamError && (
-              <p className="rounded-lg border border-red-900/60 bg-red-950/60 px-4 py-2.5 text-xs text-red-300">
-                {streamError}
-              </p>
             )}
-
-            <div
-              ref={stageRef}
-              className={`relative flex items-center justify-center overflow-hidden rounded-xl border border-zinc-800 bg-black ${
-                isFullscreen
-                  ? 'h-[100dvh] w-screen rounded-none border-0'
-                  : 'h-[42dvh] min-h-[220px] sm:h-[54dvh] lg:h-[62dvh] max-h-[78dvh]'
-              }`}
-            >
-              {streamMode === 'live' ? (
-                <>
-                  <canvas
-                    ref={canvasRef}
-                    className={
-                      screenFitMode === 'fill'
-                        ? 'h-full w-full object-cover'
-                        : screenFitMode === 'original'
-                          ? 'max-h-full max-w-full'
-                          : 'h-full w-full object-contain'
-                    }
-                  />
-                  {/* Selo limpo de live (somente vídeo e áudio, sem comentários ou reações) */}
-                  {sourceMode === 'live_server' && (
-                    <div className="pointer-events-none absolute top-3 left-3 flex items-center gap-2 rounded-md bg-black/70 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur-sm">
-                      <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                      <span>{liveStatus?.isLive ? 'AO VIVO' : 'CONECTADO'}</span>
-                      {liveStatus?.isLive && (
-                        <span className="font-normal text-zinc-300">
-                          · {liveStatus.viewerCount} assistindo
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {sourceMode === 'live_server' && audioSuspended && (
-                    <button
-                      type="button"
-                      onClick={() => void unlockAndToggleMute(true)}
-                      className="absolute bottom-4 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 rounded-full bg-[#C8102E] px-4 py-2 text-xs font-bold text-white shadow-xl hover:bg-red-700 cursor-pointer"
-                    >
-                      <Volume2 className="h-4 w-4" />
-                      Tocar para ativar o áudio
-                    </button>
-                  )}
-                  <div className="pointer-events-none absolute bottom-3 right-4 font-mono text-[11px] text-white/35">
-                    {settings.appName} · {offlineLicense?.deviceCode || 'ADMIN'}
-                  </div>
-                </>
-              ) : (
-                <div className="p-6 sm:p-8 text-center space-y-3">
-                  <Tv className="mx-auto h-10 w-10 text-[#C8102E]" />
-                  <p className="font-display text-xl font-bold text-white">
-                    {settings.appName} pronto para transmitir na Smart TV
-                  </p>
-                  <p className="max-w-md text-xs text-zinc-400">
-                    A imagem se ajusta automaticamente ao tamanho de qualquer tela (celular, tablet,
-                    notebook ou Smart TV).
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Auto-publicação do site e APK na área de transmissão do App */}
-            <DistributionCard
-              appName={settings.appName}
-              adminToken={isAuthorizedAdmin ? adminIdToken || passcodeToken : null}
-            />
           </div>
         )}
       </main>

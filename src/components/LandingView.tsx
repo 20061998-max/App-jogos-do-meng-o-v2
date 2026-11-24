@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Check,
+  Clapperboard,
   Copy,
   Download,
   ExternalLink,
@@ -158,6 +159,14 @@ export function LandingView({ settings, plans, onNavigate }: LandingViewProps) {
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Abrir na TV
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('cinema')}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-800/70 bg-red-950/40 px-4 py-2 text-xs font-semibold text-red-100 hover:bg-red-950 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Clapperboard className="h-3.5 w-3.5 text-[#C8102E]" />
+                Cinema por CPF
               </button>
             </div>
 

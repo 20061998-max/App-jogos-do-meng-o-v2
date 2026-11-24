@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { AdminView } from './components/AdminView';
 import { AppShellView } from './components/AppShellView';
 import { AppViewerView } from './components/AppViewerView';
+import { CinemaClientView } from './components/CinemaClientView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LandingView } from './components/LandingView';
 import { MengaoShield } from './components/MengaoShield';
@@ -25,7 +26,13 @@ import {
 import { AppTab } from './types';
 
 function MainApp() {
-  const [activeTab, setActiveTab] = useState<AppTab>('inicio');
+  const [activeTab, setActiveTab] = useState<AppTab>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('tab') === 'cinema') return 'cinema';
+    }
+    return 'inicio';
+  });
   const [preselectedPlan, setPreselectedPlan] = useState<string | undefined>(undefined);
   const [settings, setSettings] = useState<AppSettingsDoc>(DEFAULT_SETTINGS);
   const [plans, setPlans] = useState<PlanItem[]>(DEFAULT_PLANS);
@@ -237,6 +244,7 @@ function MainApp() {
 
   const navItems: { id: AppTab; label: string }[] = [
     { id: 'inicio', label: 'Vitrine' },
+    { id: 'cinema', label: 'Cinema' },
     { id: 'assistir', label: 'Assistir' },
     { id: 'assinante', label: 'Ativação' },
     { id: 'admin', label: 'Painel Admin' },
@@ -290,6 +298,7 @@ function MainApp() {
         {activeTab === 'inicio' && (
           <LandingView settings={settings} plans={plans} onNavigate={handleNavigate} />
         )}
+        {activeTab === 'cinema' && <CinemaClientView settings={settings} />}
         {activeTab === 'assistir' && <AppViewerView />}
         {activeTab === 'assinante' && (
           <SubscriberView

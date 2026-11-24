@@ -6,9 +6,12 @@ import { verifyOfflineActivationKey } from './license.ts';
 import { canAcceptWsConnection, releaseWsConnection } from './security.ts';
 import { findProfileById } from './store.ts';
 
+export type MatchBroadcastMode = 'flamengo' | 'outro_jogo';
+
 export interface LiveBroadcastState {
   isLive: boolean;
   title: string;
+  matchMode: MatchBroadcastMode;
   sourceApp: string;
   hasAudio: boolean;
   sampleRate: number;
@@ -34,7 +37,8 @@ let lastVideoFrame: Buffer | null = null;
 
 const state: LiveBroadcastState = {
   isLive: false,
-  title: 'Transmissão Ao Vivo · Jogos do Mengão',
+  title: 'Flamengo Ao Vivo · Jogos do Mengão',
+  matchMode: 'flamengo',
   sourceApp: 'App selecionado',
   hasAudio: false,
   sampleRate: 24000,
@@ -90,6 +94,24 @@ export function broadcastAppUpdate(payload: {
       client.send(msg);
     }
   }
+}
+
+export function updateLiveBroadcastMeta(input: {
+  title?: string;
+  matchMode?: string;
+  sourceApp?: string;
+}): LiveBroadcastState {
+  if (typeof input.title === 'string' && input.title.trim()) {
+    state.title = input.title.trim().slice(0, 120);
+  }
+  if (input.matchMode === 'outro_jogo' || input.matchMode === 'flamengo') {
+    state.matchMode = input.matchMode;
+  }
+  if (typeof input.sourceApp === 'string' && input.sourceApp.trim()) {
+    state.sourceApp = input.sourceApp.trim().slice(0, 80);
+  }
+  broadcastState();
+  return getLiveBroadcastStatus();
 }
 
 export function forceStopLiveBroadcast(): void {
@@ -227,8 +249,13 @@ export function attachLiveRelay(server: http.Server): void {
         broadcasterSocket = ws;
         ws.role = 'broadcaster';
         state.isLive = true;
-        state.title = String(msg.title || 'Transmissão Ao Vivo · Jogos do Mengão').trim().slice(0, 120);
-        state.sourceApp = String(msg.sourceApp || 'App selecionado').trim().slice(0, 80);
+        if (typeof msg.title === 'string' && msg.title.trim()) {
+          state.title = msg.title.trim().slice(0, 120);
+        }
+        if (msg.matchMode === 'outro_jogo' || msg.matchMode === 'flamengo') {
+          state.matchMode = msg.matchMode;
+        }
+        state.sourceApp = String(msg.sourceApp || state.sourceApp || 'App selecionado').trim().slice(0, 80);
         state.hasAudio = Boolean(msg.hasAudio);
         state.sampleRate = Math.max(8000, Math.min(48000, Math.floor(Number(msg.sampleRate) || 24000)));
         state.startedAt = new Date().toISOString();
@@ -243,6 +270,9 @@ export function attachLiveRelay(server: http.Server): void {
         if (ws.role !== 'broadcaster' || ws !== broadcasterSocket) return;
         if (typeof msg.title === 'string' && msg.title.trim()) {
           state.title = msg.title.trim().slice(0, 120);
+        }
+        if (msg.matchMode === 'outro_jogo' || msg.matchMode === 'flamengo') {
+          state.matchMode = msg.matchMode;
         }
         if (typeof msg.sourceApp === 'string' && msg.sourceApp.trim()) {
           state.sourceApp = msg.sourceApp.trim().slice(0, 80);

@@ -95,6 +95,36 @@ export interface ServerPlanRecord {
   sortOrder: number;
 }
 
+export interface CinemaSessionRecord {
+  id: string;
+  title: string;
+  videoUrl: string;
+  posterUrl?: string;
+  synopsis?: string;
+  genre?: string;
+  ticketPrice: string;
+  startTime: string;
+  durationMinutes: number;
+  active: boolean;
+  createdAt: string;
+}
+
+export type CinemaTicketStatus = 'pendente' | 'liberado' | 'revogado';
+
+export interface CinemaTicketRecord {
+  id: string;
+  cpfDigits: string;
+  cpfMasked: string;
+  customerName?: string;
+  sessionId: string;
+  movieTitle: string;
+  ticketPrice: string;
+  status: CinemaTicketStatus;
+  createdAt: string;
+  releasedAt?: string;
+  expiresAt: string;
+}
+
 interface StoreData {
   profiles: UserProfileRecord[];
   pagamentos: PaymentLogRecord[];
@@ -106,6 +136,8 @@ interface StoreData {
   developerMessages?: DeveloperMessageRecord[];
   adminPasscodeHash?: string;
   configVersion?: number;
+  cinemaSchedule?: CinemaSessionRecord[];
+  cinemaTickets?: CinemaTicketRecord[];
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -246,6 +278,8 @@ function ensureStore(): StoreData {
         typeof parsed.configVersion === 'number' && Number.isFinite(parsed.configVersion)
           ? parsed.configVersion
           : 1,
+      cinemaSchedule: Array.isArray(parsed.cinemaSchedule) ? parsed.cinemaSchedule : [],
+      cinemaTickets: Array.isArray(parsed.cinemaTickets) ? parsed.cinemaTickets : [],
     };
   } catch {
     return {
@@ -256,6 +290,8 @@ function ensureStore(): StoreData {
       devices: [],
       paymentRequests: [],
       developerMessages: [],
+      cinemaSchedule: [],
+      cinemaTickets: [],
     };
   }
 }
@@ -897,4 +933,359 @@ export function deleteCustomPlan(
   bumpConfigVersion(data);
   saveStore(data);
   return data.customPlans;
+}
+
+function sanitizeMediaUrl(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 1000) return '';
+  if (trimmed.startsWith('/')) return trimmed;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
+export function isFreeCinemaPrice(price?: string): boolean {
+  const clean = String(price || '').trim().toLowerCase();
+  return clean === 'gratuito' || clean === 'grátis' || clean === 'gratis' || clean === 'r$ 0,00' || clean === '0';
+}
+
+export function listCinemaSessions(onlyActive = false): CinemaSessionRecord[] {
+  const data = ensureStore();
+  const list = Array.isArray(data.cinemaSchedule) ? [...data.cinemaSchedule] : [];
+  const normalized = list.map((s) => ({
+    ...s,
+    ticketPrice: String(s.ticketPrice || '').trim() || 'R$ 10,00',
+  }));
+  const filtered = onlyActive ? normalized.filter((s) => s.active !== false) : normalized;
+  return filtered.sort(
+    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+  );
+}
+
+export function listCinemaSessionsPublic(onlyActive = true) {
+  return listCinemaSessions(onlyActive).map((s) => ({
+    id: s.id,
+    title: s.title,
+    posterUrl: s.posterUrl,
+    synopsis: s.synopsis,
+    genre: s.genre,
+    ticketPrice: s.ticketPrice,
+    isFree: isFreeCinemaPrice(s.ticketPrice),
+    startTime: s.startTime,
+    durationMinutes: s.durationMinutes,
+    active: s.active,
+    createdAt: s.createdAt,
+    ...(isFreeCinemaPrice(s.ticketPrice) ? { videoUrl: s.videoUrl } : {}),
+  }));
+}
+
+export function getCinemaSessionById(sessionId: string): CinemaSessionRecord | undefined {
+  const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '');
+  return listCinemaSessions(false).find((s) => s.id === safeId);
+}
+
+export function upsertCinemaSession(input: {
+  id?: string;
+  title: string;
+  videoUrl: string;
+  posterUrl?: string;
+  synopsis?: string;
+  genre?: string;
+  ticketPrice?: string;
+  startTime: string;
+  durationMinutes?: number;
+  active?: boolean;
+}): CinemaSessionRecord[] {
+  const cleanTitle = String(input.title || '').trim().slice(0, 120);
+  const cleanVideoUrl = sanitizeMediaUrl(input.videoUrl);
+  const parsedStart = new Date(input.startTime);
+
+  if (cleanTitle.length < 2) {
+    throw new Error('Informe o título do filme.');
+  }
+  if (!cleanVideoUrl) {
+    throw new Error('Informe uma URL de vídeo válida (https://... ou http://...).');
+  }
+  if (Number.isNaN(parsedStart.getTime())) {
+    throw new Error('Informe uma data e horário válidos para a sessão.');
+  }
+
+  const data = ensureStore();
+  const list = Array.isArray(data.cinemaSchedule) ? [...data.cinemaSchedule] : [];
+  const safeId =
+    (input.id || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 64) || `cine-${crypto.randomUUID().slice(0, 8)}`;
+
+  const existing = list.find((s) => s.id === safeId);
+  const durationMinutes = Math.max(
+    5,
+    Math.min(720, Math.floor(Number(input.durationMinutes) || 120))
+  );
+  const cleanPrice =
+    String(input.ticketPrice ?? existing?.ticketPrice ?? 'R$ 10,00')
+      .trim()
+      .slice(0, 40) || 'R$ 10,00';
+
+  const record: CinemaSessionRecord = {
+    id: safeId,
+    title: cleanTitle,
+    videoUrl: cleanVideoUrl,
+    posterUrl: sanitizeMediaUrl(input.posterUrl),
+    synopsis: String(input.synopsis || '').trim().slice(0, 400),
+    genre: String(input.genre || 'Filme').trim().slice(0, 40) || 'Filme',
+    ticketPrice: cleanPrice,
+    startTime: parsedStart.toISOString(),
+    durationMinutes,
+    active: input.active !== false,
+    createdAt: existing?.createdAt || new Date().toISOString(),
+  };
+
+  const idx = list.findIndex((s) => s.id === safeId);
+  if (idx >= 0) {
+    list[idx] = record;
+  } else {
+    list.push(record);
+  }
+  list.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  data.cinemaSchedule = list.slice(0, 100);
+
+  // Atualiza validade (até o filme acabar) de ingressos já emitidos para esta sessão
+  const sessionEndIso = new Date(
+    parsedStart.getTime() + durationMinutes * 60_000
+  ).toISOString();
+  if (Array.isArray(data.cinemaTickets)) {
+    data.cinemaTickets = data.cinemaTickets.map((t) =>
+      t.sessionId === safeId
+        ? {
+            ...t,
+            movieTitle: record.title,
+            ticketPrice: record.ticketPrice,
+            expiresAt: sessionEndIso,
+          }
+        : t
+    );
+  }
+
+  bumpConfigVersion(data);
+  saveStore(data);
+  return listCinemaSessions(false);
+}
+
+export function deleteCinemaSession(id: string): CinemaSessionRecord[] {
+  const data = ensureStore();
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, '');
+  data.cinemaSchedule = (data.cinemaSchedule || []).filter((s) => s.id !== safeId);
+  data.cinemaTickets = (data.cinemaTickets || []).filter((t) => t.sessionId !== safeId);
+  bumpConfigVersion(data);
+  saveStore(data);
+  return listCinemaSessions(false);
+}
+
+export function normalizeCpfDigits(raw: unknown): string {
+  return String(raw || '').replace(/\D/g, '').slice(0, 11);
+}
+
+export function maskCpfDigits(digits: string): string {
+  if (digits.length !== 11) return '***.***.***-**';
+  return `***.${digits.slice(3, 6)}.${digits.slice(6, 9)}-**`;
+}
+
+function computeSessionEndIso(session: CinemaSessionRecord): string {
+  const startMs = new Date(session.startTime).getTime();
+  return new Date(startMs + session.durationMinutes * 60_000).toISOString();
+}
+
+export function requestCinemaCpfTicket(input: {
+  cpf: string;
+  sessionId: string;
+  customerName?: string;
+}): CinemaTicketRecord {
+  const cpfDigits = normalizeCpfDigits(input.cpf);
+  if (cpfDigits.length !== 11) {
+    throw new Error('Informe um CPF válido com 11 números.');
+  }
+  const session = getCinemaSessionById(input.sessionId);
+  if (!session || session.active === false) {
+    throw new Error('Filme ou sessão de cinema não encontrada.');
+  }
+  const expiresAt = computeSessionEndIso(session);
+  if (new Date(expiresAt).getTime() <= Date.now()) {
+    throw new Error('Esta sessão de cinema já terminou.');
+  }
+
+  const data = ensureStore();
+  const tickets = Array.isArray(data.cinemaTickets) ? [...data.cinemaTickets] : [];
+  const existing = tickets.find(
+    (t) =>
+      t.cpfDigits === cpfDigits &&
+      t.sessionId === session.id &&
+      t.status !== 'revogado'
+  );
+  if (existing) {
+    if (input.customerName?.trim()) {
+      existing.customerName = input.customerName.trim().slice(0, 80);
+      saveStore(data);
+    }
+    return existing;
+  }
+
+  const record: CinemaTicketRecord = {
+    id: `tkt-${crypto.randomUUID().slice(0, 8)}`,
+    cpfDigits,
+    cpfMasked: maskCpfDigits(cpfDigits),
+    customerName: String(input.customerName || '').trim().slice(0, 80) || undefined,
+    sessionId: session.id,
+    movieTitle: session.title,
+    ticketPrice: session.ticketPrice,
+    status: 'pendente',
+    createdAt: new Date().toISOString(),
+    expiresAt,
+  };
+  tickets.unshift(record);
+  data.cinemaTickets = tickets.slice(0, 500);
+  saveStore(data);
+  return record;
+}
+
+export function releaseCinemaCpfTicket(input: {
+  cpf: string;
+  sessionId: string;
+  customerName?: string;
+}): CinemaTicketRecord {
+  const cpfDigits = normalizeCpfDigits(input.cpf);
+  if (cpfDigits.length !== 11) {
+    throw new Error('Informe um CPF válido com 11 números.');
+  }
+  const session = getCinemaSessionById(input.sessionId);
+  if (!session) {
+    throw new Error('Selecione um filme agendado para liberar o ingresso.');
+  }
+  const expiresAt = computeSessionEndIso(session);
+  if (new Date(expiresAt).getTime() <= Date.now()) {
+    throw new Error('Este filme já encerrou. Ajuste o horário ou clique em Passar agora.');
+  }
+
+  const data = ensureStore();
+  const tickets = Array.isArray(data.cinemaTickets) ? [...data.cinemaTickets] : [];
+  const existingIdx = tickets.findIndex(
+    (t) => t.cpfDigits === cpfDigits && t.sessionId === session.id
+  );
+  const nowIso = new Date().toISOString();
+  const record: CinemaTicketRecord = {
+    id: existingIdx >= 0 ? tickets[existingIdx].id : `tkt-${crypto.randomUUID().slice(0, 8)}`,
+    cpfDigits,
+    cpfMasked: maskCpfDigits(cpfDigits),
+    customerName:
+      String(input.customerName || '').trim().slice(0, 80) ||
+      (existingIdx >= 0 ? tickets[existingIdx].customerName : undefined),
+    sessionId: session.id,
+    movieTitle: session.title,
+    ticketPrice: session.ticketPrice,
+    status: 'liberado',
+    createdAt: existingIdx >= 0 ? tickets[existingIdx].createdAt : nowIso,
+    releasedAt: nowIso,
+    expiresAt,
+  };
+
+  if (existingIdx >= 0) {
+    tickets[existingIdx] = record;
+  } else {
+    tickets.unshift(record);
+  }
+  data.cinemaTickets = tickets.slice(0, 500);
+  bumpConfigVersion(data);
+  saveStore(data);
+  return record;
+}
+
+export function revokeCinemaCpfTicket(ticketId: string): boolean {
+  const data = ensureStore();
+  const safeId = ticketId.replace(/[^a-zA-Z0-9_-]/g, '');
+  const before = Array.isArray(data.cinemaTickets) ? data.cinemaTickets.length : 0;
+  data.cinemaTickets = (data.cinemaTickets || []).filter((t) => t.id !== safeId);
+  if (data.cinemaTickets.length === before) return false;
+  bumpConfigVersion(data);
+  saveStore(data);
+  return true;
+}
+
+export function listCinemaTicketsAdmin(): Array<CinemaTicketRecord & { expired: boolean }> {
+  const data = ensureStore();
+  const now = Date.now();
+  const tickets = Array.isArray(data.cinemaTickets) ? [...data.cinemaTickets] : [];
+  const cleaned = tickets.filter((t) => now - new Date(t.expiresAt).getTime() < 24 * 60 * 60 * 1000);
+  if (cleaned.length !== tickets.length) {
+    data.cinemaTickets = cleaned;
+    saveStore(data);
+  }
+  return cleaned
+    .map((t) => ({
+      ...t,
+      expired: new Date(t.expiresAt).getTime() <= now,
+    }))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export function verifyCinemaAccessByCpf(rawCpf: string, requestedSessionId?: string): {
+  cpfDigits: string;
+  cpfMasked: string;
+  authorized: boolean;
+  tickets: Array<{
+    id: string;
+    sessionId: string;
+    movieTitle: string;
+    ticketPrice: string;
+    status: CinemaTicketStatus;
+    expiresAt: string;
+  }>;
+  unlockedSessions: CinemaSessionRecord[];
+} {
+  const cpfDigits = normalizeCpfDigits(rawCpf);
+  if (cpfDigits.length !== 11) {
+    throw new Error('Informe um CPF válido com 11 números.');
+  }
+  const now = Date.now();
+  const sessions = listCinemaSessions(true);
+  const data = ensureStore();
+  const allTickets = Array.isArray(data.cinemaTickets) ? data.cinemaTickets : [];
+
+  const matchingTickets = allTickets.filter(
+    (t) =>
+      t.cpfDigits === cpfDigits &&
+      (!requestedSessionId || t.sessionId === requestedSessionId) &&
+      new Date(t.expiresAt).getTime() > now
+  );
+
+  const activeReleasedIds = new Set(
+    matchingTickets.filter((t) => t.status === 'liberado').map((t) => t.sessionId)
+  );
+
+  const unlockedSessions = sessions.filter((s) => {
+    const endMs = new Date(computeSessionEndIso(s)).getTime();
+    if (endMs <= now) return false;
+    return activeReleasedIds.has(s.id) || isFreeCinemaPrice(s.ticketPrice);
+  });
+
+  return {
+    cpfDigits,
+    cpfMasked: maskCpfDigits(cpfDigits),
+    authorized: unlockedSessions.some((s) => activeReleasedIds.has(s.id)) || activeReleasedIds.size > 0,
+    tickets: matchingTickets.map((t) => ({
+      id: t.id,
+      sessionId: t.sessionId,
+      movieTitle: t.movieTitle,
+      ticketPrice: t.ticketPrice,
+      status: t.status,
+      expiresAt: t.expiresAt,
+    })),
+    unlockedSessions,
+  };
 }
