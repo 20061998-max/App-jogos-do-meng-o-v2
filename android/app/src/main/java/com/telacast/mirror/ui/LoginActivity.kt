@@ -53,6 +53,17 @@ class LoginActivity : AppCompatActivity() {
             OfflineLicenseManager.syncPublicKeyIfNeeded(this@LoginActivity)
         }
 
+        binding.btnCinemaCpf.setOnClickListener {
+            val intent = Intent(this, ViewerActivity::class.java).apply {
+                putExtra(MainActivity.EXTRA_USER_NAME, "Cinema (CPF)")
+                putExtra(MainActivity.EXTRA_PLAN_NAME, "Ingresso Pix por Filme")
+                putExtra(MainActivity.EXTRA_AUTH_MODE, "cinema_cpf")
+                putExtra(ViewerActivity.EXTRA_IS_ADMIN, false)
+                putExtra(ViewerActivity.EXTRA_START_TAB, "cinema")
+            }
+            startActivity(intent)
+        }
+
         binding.btnCopiarCodigo.setOnClickListener {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("Código do Aparelho Jogos do Mengão", deviceCode))
@@ -151,10 +162,11 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun abrirPainelPrincipalOffline(state: OfflineLicenseState) {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_USER_NAME, "Aparelho ${state.deviceCode}")
-            putExtra(MainActivity.EXTRA_PLAN_NAME, "${state.plano ?: "Mensal Pro"} · ${state.diasRestantes}d offline")
+        val intent = Intent(this, ViewerActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_USER_NAME, "Assinante ${state.deviceCode}")
+            putExtra(MainActivity.EXTRA_PLAN_NAME, "${state.plano ?: "Mensal"} · ${state.diasRestantes}d")
             putExtra(MainActivity.EXTRA_AUTH_MODE, "offline")
+            putExtra(ViewerActivity.EXTRA_IS_ADMIN, false)
         }
         startActivity(intent)
         finish()
@@ -169,11 +181,14 @@ class LoginActivity : AppCompatActivity() {
             when (val outcome = authRepository.loginAndVerifySubscription(email, senha)) {
                 is LoginOutcome.Authorized -> {
                     setCarregando(false)
-                    val intent = Intent(this@LoginActivity, MainActivity::class.java).apply {
+                    val isAdmin = outcome.subscription.role.equals("admin", ignoreCase = true)
+                    val targetClass = if (isAdmin) MainActivity::class.java else ViewerActivity::class.java
+                    val intent = Intent(this@LoginActivity, targetClass).apply {
                         putExtra(MainActivity.EXTRA_USER_NAME, outcome.subscription.nome ?: email)
-                        putExtra(MainActivity.EXTRA_PLAN_NAME, outcome.subscription.plano ?: "Mensal Pro")
+                        putExtra(MainActivity.EXTRA_PLAN_NAME, outcome.subscription.plano ?: "Assinatura Ativa")
                         putExtra(MainActivity.EXTRA_AUTH_MODE, "online")
                         putExtra(MainActivity.EXTRA_AUTH_TOKEN, outcome.accessToken)
+                        putExtra(ViewerActivity.EXTRA_IS_ADMIN, isAdmin)
                     }
                     startActivity(intent)
                     finish()
